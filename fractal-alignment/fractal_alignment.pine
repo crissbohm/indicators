@@ -882,9 +882,16 @@ newHtfCandle(int openT = na) =>
 
 // Close time of the forming HTF candle. time_close() came back stale for 30m / 1H on lower charts,
 // so intraday timeframes use their open time + length; daily and above keep time_close().
+// Weekly on a Friday trading day: time_close('W') is Sunday's open on futures / forex, so the week ends at
+// the day's close instead (crypto trades through the weekend).
 htfCloseTime(string tf) =>
     int sec = timeframe.in_seconds(tf)
-    sec < 86400 ? time(tf) + sec * 1000 : time_close(tf)
+    int t   = sec < 86400 ? time(tf) + sec * 1000 : time_close(tf)
+    if sec == 604800 and syminfo.type != 'crypto' and timeframe.in_seconds() <= 86400 and dayofweek(time_tradingday, 'UTC') == dayofweek.friday
+        int dClose = time_close('D')
+        if not na(dClose) and not na(t)
+            t := math.min(t, dClose)
+    t
 
 
 drawEarlyCisd(bool isBull, float level, int idx, int confirmBar, float extreme) =>
