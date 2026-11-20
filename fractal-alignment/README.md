@@ -68,17 +68,17 @@ On the chart:
 
 - **Model HTF block** (1H on a 5m chart): 4–40 candles, size (Small / Normal / Large), offset. White / black candles, packed close together.
 - **HTF 1 / HTF 2** (off by default): extra blocks to the right. Auto = one and two steps above the model HTF (15m, 1H, 4H, D, W, M), or pick 15m, 30m, 1H, 90m, 4H, 6H, 7H, D, W, M; Auto never picks 90m, 6H or 7H. They show Previous EQ, sweeps, SMT and PSP; no model runs on them. They also show with Hide? on (Hide? only hides the model block) and on timeframes without a fractal (45m, 2H, 7H…), where Auto counts from the chart (7H: D / W). Each has its own candle count (the box next to its timeframe, 1 to 10, default 4); HTF Candles is only for the model block (at least 4).
-- **HTF Label + Remaining Time** above each block by default (`Bottom` or `Both` to change): the timeframe in bold, the time left in brackets under it, e.g. `1H` / `(12:40)`.
+- **HTF Label + Remaining Time** above each block by default (`Bottom` or `Both` to change): the timeframe in bold, the time left in brackets under it, e.g. `1H` / `(12:40)`. On Fridays, the weekly (`1W`) countdown ends at Friday's day close on non-crypto symbols instead of Sunday's open.
 - **HTF Open** and **Previous EQ** on the chart, on the HTF candles, or both. **L/H Lines** (off by default). **Time Labels** under each candle (on by default): open time, the day name on daily, the week's Monday date on weekly (`NOV 2`), the month on monthly.
 - **Live sweep:** when the forming candle takes the previous candle's extreme and trades back inside.
 - **SMT** between consecutive HTF candles, including the forming one; hidden once a newer candle trades beyond it.
-- **Hide Setups?** hides every model drawing and model alert; the HTF candles stay.
+- **Hide Setups?** hides every model drawing and model alert; the HTF candles and their sweep / PSP lines stay.
 
 ## Asset Correlation (SMT + PSP)
 
 - Two pairs, automatic, from the chart's own broker:
   - Futures: NQ ↔ ES + YM, ES ↔ NQ + YM, YM / RTY ↔ ES + NQ, GC ↔ XAUEUR + XAUGBP, SI ↔ XAGEUR + XAGGBP, CL ↔ RB + HO, HO ↔ CL + RB, RB ↔ CL + HO, BTC ↔ ETH (micros too). A dated contract (NQZ2026) pairs with the same contract (ESZ2026).
-  - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD, AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD, USOIL ↔ GASOLINEF + HEATINGOILF.
+  - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD, AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD, USOIL ↔ GASOLINEF + HEATINGOILF (FXCM).
   - Crypto: BTCUSDT ↔ ETHUSDT (also `.P` perpetuals and BTCUSD ↔ ETHUSD).
   - `Custom`: two symbols by hand, each with `Inverse?` (e.g. DXY).
 - **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price). The label names the pair.
