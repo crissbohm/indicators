@@ -78,7 +78,7 @@ htfNameColorL = #2a2e39   // HTF block timeframe name (dark, bold)
 
 grpVisuals      = 'Model Style'
 showEarlyCisd   = input.bool(false, 'Show Early C2 CISD', group = grpVisuals, inline = 'early')
-earlyCisdStyle  = input.string('Dotted', '', options = ['Solid', 'Dashed', 'Dotted'], group = grpVisuals, inline = 'early', active = showEarlyCisd, tooltip = 'Early CISD: price closes through the CISD level while C2 is still forming, before the C2 candle closes. Drawn in the Bullish / Bearish CISD colors. Its alert is Early CISD? in Alerts Settings.')
+earlyCisdStyle  = input.string('Dotted', '', options = ['Solid', 'Dashed', 'Dotted'], group = grpVisuals, inline = 'early', active = showEarlyCisd, tooltip = 'Early CISD: price closes through the CISD level while C2 is still forming, before the C2 candle closes. Drawn in the Bullish / Bearish CISD colors, along with the forming C2 reversal SMT and protected swings (in this line style) until C2 closes. Its alert is Early CISD? in Alerts Settings.')
 
 cisdBullColor = input.color(#2962ff, '', group = grpVisuals, inline = 'bullcisd')
 showBullCisd  = input.bool(true, 'Bullish CISD', group = grpVisuals, inline = 'bullcisd')
@@ -122,7 +122,7 @@ smtDisplay    = input.string('Both', 'SMT Display', options = ['Both', 'Chart', 
 smtLabels     = input.bool(true, 'Labels?', group = grpSmt, inline = 'smtlbl')
 smtLblSize    = input.string('Small', '', options = ['Tiny', 'Small', 'Normal', 'Large'], group = grpSmt, inline = 'smtlbl', active = smtLabels, tooltip = 'On the chart the label names the pair that made the SMT. The HTF candles show the line only.')
 pairMode      = input.string('Automatic', 'Correlated Pairs', options = ['Automatic', 'Custom'], group = grpSmt, inline = 'pairs')
-useSecondPair = input.bool(true, 'Enable Second Pair?', group = grpSmt, inline = 'pairs', tooltip = "Automatic:\nFutures (micros too): NQ / ES / YM / RTY with each other, GC / SI ↔ the same metal in EUR + GBP, CL / RB / HO with each other, BTC ↔ ETH\nCFD (same broker): US100 / US500 / US30 with each other, XAUUSD / XAGUSD ↔ EUR + GBP, EURUSD ↔ GBPUSD, AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD with each other, oil ↔ gasoline + heating oil, BTC ↔ ETH and similar\n\nCustom: the two symbols below.")
+useSecondPair = input.bool(true, 'Enable Second Pair?', group = grpSmt, inline = 'pairs', tooltip = "Automatic:\nFutures (micros too): NQ / ES / YM / RTY with each other, GC / SI ↔ the same metal in EUR + GBP, CL / RB / HO with each other, FDAX / FESX / Z (FTSE) with each other, BTC ↔ ETH\nCFD (same broker): US100 / US500 / US30 with each other, GER40 / UK100 / EU50 with each other, XAUUSD / XAGUSD ↔ EUR + GBP, EURUSD ↔ GBPUSD, AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD with each other, oil ↔ gasoline + heating oil, BTC ↔ ETH and similar\n\nCustom: the two symbols below.")
 pair1In       = input.symbol('CME_MINI:ES1!', '1.', group = grpSmt, inline = 'p1', active = pairMode == 'Custom')
 pair1Inv      = input.bool(false, 'Inverse?', group = grpSmt, inline = 'p1', active = pairMode == 'Custom', tooltip = 'Inverse: the pair moves opposite to this symbol (e.g. DXY against EURUSD). Its highs are compared with your lows.')
 pair2In       = input.symbol('CME_MINI:NQ1!', '2.', group = grpSmt, inline = 'p2', active = pairMode == 'Custom' and useSecondPair)
@@ -367,6 +367,8 @@ type C2Setup
     int    fl1Bar   = na
     float  fl0Px    = na
     int    fl0Bar   = na
+    // [EARLY C2] temporary setup while C2 is still forming (never enters setupRecords or icDots)
+    bool   early    = false
 
 type SetupRecord
     C2Setup setup
@@ -388,6 +390,12 @@ var array<line>             vLines               = array.new<line>()
 var PeriodState              state                = PeriodState.new()
 var C2Setup                  buySetup             = na
 var C2Setup                  sellSetup            = na
+var C2Setup                  earlyBuy             = na
+var C2Setup                  earlySell            = na
+var bool                     earlyBullArmed       = false
+var bool                     earlyBearArmed       = false
+var bool                     earlyBullSmtAlerted  = false
+var bool                     earlyBearSmtAlerted  = false
 var array<SetupRecord>       setupRecords         = array.new<SetupRecord>()
 // Persistent protected-swing dots: independent of any setup's lifespan
 var array<ICCisd>            icDots               = array.new<ICCisd>()
@@ -452,6 +460,16 @@ f_fut_pairs(string t) =>
     else if str.startswith(t, 'RB')
         f1 := 'CL1!'
         f2 := 'HO1!'
+    else if str.startswith(t, 'FDAX') or str.startswith(t, 'FDXM')
+        // DAX <-> Euro Stoxx 50 + FTSE 100, like the GER40 CFD
+        f1 := 'EUREX:FESX1!'
+        f2 := 'ICEEUR:Z1!'
+    else if str.startswith(t, 'FESX')
+        f1 := 'EUREX:FDAX1!'
+        f2 := 'ICEEUR:Z1!'
+    else if str.startswith(syminfo.prefix, 'ICEEUR') and (t == 'Z1!' or t == 'Z2!' or str.match(t, '^Z[FGHJKMNQUVXZ][0-9]{4}$') != '')
+        f1 := 'EUREX:FDAX1!'
+        f2 := 'EUREX:FESX1!'
     else if str.startswith(t, 'BTC')
         f1 := 'ETH1!'
     else if str.startswith(t, 'ETH')
@@ -479,6 +497,18 @@ f_smt_pairs(string t) =>
         'USDJPY' => ['USDCHF', '', 'USDCAD', '']
         'USDCHF' => ['USDJPY', '', 'USDCAD', '']
         'USDCAD' => ['USDCHF', '', 'USDJPY', '']
+        // European indices: DAX <-> FTSE 100 + Euro Stoxx 50
+        'GER40'   => ['UK100', '', 'EU50', 'EUSTX50']
+        'DE40'    => ['UK100', '', 'EU50', 'EUSTX50']
+        'GER30'   => ['UK100', '', 'EU50', 'EUSTX50']
+        'UK100'   => ['GER40', 'DE40', 'EU50', 'EUSTX50']
+        'EU50'    => ['GER40', 'DE40', 'UK100', '']
+        'EUSTX50' => ['GER40', 'DE40', 'UK100', '']
+        'STOXX50' => ['GER40', 'DE40', 'UK100', '']
+        'EURO50'  => ['GER40', 'DE40', 'UK100', '']
+        'DE30EUR'  => ['UK100GBP', '', 'EU50EUR', '']
+        'UK100GBP' => ['DE30EUR', '', 'EU50EUR', '']
+        'EU50EUR'  => ['DE30EUR', '', 'UK100GBP', '']
         // FXCM energy CFDs, like CL1! <-> RB1! + HO1!
         'USOIL'       => ['GASOLINEF', '', 'HEATINGOILF', '']
         'GASOLINEF'   => ['USOIL', '', 'HEATINGOILF', '']
@@ -515,6 +545,25 @@ f_smt_pairs(string t) =>
         a1 := tSp ? kNq : kSp
         b1 := ''
         a2 := t == 'US30' ? kNq : kDj
+        b2 := ''
+    // European index names per broker (TradingView symbol search, 21 Nov 2026)
+    [kDe, kUk, kEu] = switch syminfo.prefix
+        'FX'            => ['GER30', 'UK100', 'EUSTX50']
+        'PEPPERSTONE'   => ['GER40', 'UK100', 'EUSTX50']
+        'CAPITALCOM'    => ['GER40', 'UK100', 'EU50']
+        'FOREXCOM'      => ['GER40', 'UK100', 'EU50']
+        'FPMARKETS'     => ['GER40', 'UK100', 'EURO50']
+        'TICKMILL'      => ['DE40', 'UK100', 'STOXX50']
+        'FUSIONMARKETS' => ['GER40', 'UK100', 'EUSTX50']
+        'SKILLING'      => ['DE40', 'UK100', 'EUSTX50']
+        'EIGHTCAP'      => ['GER40', 'UK100', 'EUSTX50']
+        'VANTAGE'       => ['GER40', 'UK100', 'EU50']
+        'IC'            => ['DE40', 'UK100', 'STOXX50']
+        => ['', '', '']
+    if kDe != '' and (t == kDe or t == kUk or t == kEu)
+        a1 := t == kDe ? kUk : kDe
+        b1 := ''
+        a2 := t == kEu ? kUk : kEu
         b2 := ''
     // FXCM has no XAUEUR / XAUGBP / XAGEUR / XAGGBP: the OANDA names directly
     if syminfo.prefix == 'FX' and str.startswith(b1, 'OANDA:')
@@ -556,6 +605,10 @@ bool   pair2InvOn = smtCustom and pair2Inv
 //#endregion
 
 //#region [FUNCTIONS]
+
+// A drawing's left end is never moved further back than the time buffer allows
+xAnchor(int x) =>
+    na(x) ? na : math.max(x, bar_index - 4900)
 
 customTfLabel(string tf) =>
     float  mins   = str.tonumber(tf)
@@ -1057,16 +1110,18 @@ c4LabelDodge(C2Setup s) =>
             label.set_x(s.c4Lbl, nx)
 
 registerIcCisd(C2Setup s, float swPx, int swIdx, int brokeBar) =>
-    color clr     = s.isBull ? protBullColor : protBearColor
-    label  dotLbl = label.new(swIdx, swPx, '●', xloc = xloc.bar_index, style = s.isBull ? label.style_label_up : label.style_label_down, color = na, textcolor = clr, size = textSize(icCisdDotSize), text_font_family = font.family_default)
+    color  clr     = s.isBull ? protBullColor : protBearColor
+    string lnStyle = s.early ? earlyCisdStyle : protStyle
+    label  dotLbl  = label.new(xAnchor(swIdx), swPx, '●', xloc = xloc.bar_index, style = s.isBull ? label.style_label_up : label.style_label_down, color = na, textcolor = clr, size = textSize(icCisdDotSize), text_font_family = font.family_default)
     // the level price closed through to confirm the swing; like the CISD line it ends one candle after that close
-    line   lvlLn  = not na(s.icLevel) and not na(s.icStartIndex) ? line.new(s.icStartIndex, s.icLevel, brokeBar + 1, s.icLevel, xloc = xloc.bar_index, color = clr, style = lineStyleFromStr(protStyle), width = protWidth) : na
+    line   lvlLn   = not na(s.icLevel) and not na(s.icStartIndex) ? line.new(xAnchor(s.icStartIndex), s.icLevel, brokeBar + 1, s.icLevel, xloc = xloc.bar_index, color = clr, style = lineStyleFromStr(lnStyle), width = protWidth) : na
     ic = ICCisd.new(swPx, dotLbl = dotLbl, isBull = s.isBull, ln = lvlLn, swBar = swIdx)
     if na(s.icList)
         s.icList := array.new<ICCisd>()
     s.icList.push(ic)
-    // global list: survives setup eviction
-    icDots.push(ic)
+    // global list: survives setup eviction (early C2 swings are temporary and cleaned up on C2 close / breach)
+    if not s.early
+        icDots.push(ic)
     c4LabelDodge(s)
 
 // Greys a dot when price wicks beyond its extreme. A grey dot stays on the chart until its
@@ -1174,7 +1229,7 @@ icStep(C2Setup s, int m, bool live) =>
                             c4Ok := swPx > s.c3Lo and swPx < s.c3Hi
                 if c4Ok and (icInFvg(s, swPx, swIdx) or icSweepsSwing(s, swPx, swIdx))
                     registerIcCisd(s, swPx, swIdx, m)
-                    if live and barstate.isconfirmed and showAlerts and protAlerts
+                    if live and barstate.isconfirmed and showAlerts and protAlerts and (not s.early or earlyCisdAlerts)
                         alert((s.isBull ? 'Bullish' : 'Bearish') + ' Protected Swing on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
                 icClearPending(s)
     else if oppBar
@@ -1719,9 +1774,64 @@ smtDrawOn(C2Setup s, int x1, float y1, int x2, float y2, bool isHigh, string txt
     if na(s.smtLns)
         s.smtLns  := array.new<line>()
         s.smtLbls := array.new<label>()
-    s.smtLns.push(line.new(x1, y1, x2, y2, xloc = xloc.bar_index, color = smtColorFor(isHigh), style = lineStyleFromStr(smtStyle), width = smtWidth))
+    int ax1 = xAnchor(x1)
+    int ax2 = xAnchor(x2)
+    s.smtLns.push(line.new(ax1, y1, ax2, y2, xloc = xloc.bar_index, color = smtColorFor(isHigh), style = lineStyleFromStr(smtStyle), width = smtWidth))
     if txt != ''
-        s.smtLbls.push(label.new(int(math.round((x1 + x2) / 2.0)), (y1 + y2) / 2, txt, xloc = xloc.bar_index, yloc = yloc.price, style = isHigh ? label.style_label_down : label.style_label_up, color = na, textcolor = smtColorFor(isHigh), size = textSize(smtLblSize), text_font_family = font.family_default))
+        s.smtLbls.push(label.new(int(math.round((ax1 + ax2) / 2.0)), (y1 + y2) / 2, txt, xloc = xloc.bar_index, yloc = yloc.price, style = isHigh ? label.style_label_down : label.style_label_up, color = na, textcolor = smtColorFor(isHigh), size = textSize(smtLblSize), text_font_family = font.family_default))
+
+// [EARLY C2] temporary setup while C2 is still forming: carries C1/C2 anchors for live reversal SMT and
+// feeds icStep() for early protected swings. Cleaned up on periodChanged or when C2's extreme is breached.
+newEarlySetup(bool isBull, HtfCandle cur, HtfCandle prev, float cisdLevel, int cisdIndex, int confirmBar) =>
+    C2Setup s = C2Setup.new(isBull = isBull, extreme = isBull ? cur.l : cur.h, phase = 1, dead = false, c2Lbl = na)
+    s.early         := true
+    s.c2BarIndex    := isBull ? cur.lBar : cur.hBar
+    s.c1Px          := isBull ? prev.l : prev.h
+    s.c1Bar         := isBull ? prev.lBar : prev.hBar
+    s.cisdLevel     := cisdLevel
+    s.cisdIndex     := cisdIndex
+    s.cisdConfirmed := true
+    s.cisdEndIndex  := confirmBar
+    s
+
+// Live reversal SMT while C2 is forming: our symbol swept C1, a pair has not swept its own C1 yet
+earlySmtFlags(bool isBull, HtfCandle cur, HtfCandle prev) =>
+    bool d1 = false
+    bool d2 = false
+    if show_smt and not na(cur) and not na(prev)
+        if not na(cur.pL) and not na(prev.pL) and not na(cur.pH) and not na(prev.pH)
+            d1 := isBull ? cur.pL > prev.pL : cur.pH < prev.pH
+        if not na(cur.qL) and not na(prev.qL) and not na(cur.qH) and not na(prev.qH)
+            d2 := isBull ? cur.qL > prev.qL : cur.qH < prev.qH
+    [d1, d2]
+
+// Keeps the early reversal SMT line / pair label in sync on confirmed bars; drops it if pairs sweep their C1
+updateEarlySmt(C2Setup s, HtfCandle cur, HtfCandle prev) =>
+    if not na(s) and barstate.isconfirmed
+        [d1, d2] = earlySmtFlags(s.isBull, cur, prev)
+        bool active = smtOnChart and (d1 or d2) and not na(s.c1Bar) and not na(s.c1Px) and not na(s.c2BarIndex)
+        if active
+            string txt = smtNames(d1, d2)
+            if na(s.smtLns) or s.smtLns.size() == 0
+                smtDrawOn(s, s.c1Bar, s.c1Px, s.c2BarIndex, s.extreme, not s.isBull, txt)
+            else if txt != ''
+                if s.smtLbls.size() > 0
+                    label.set_text(s.smtLbls.get(0), txt)
+                else
+                    int ax1 = xAnchor(s.c1Bar)
+                    int ax2 = xAnchor(s.c2BarIndex)
+                    s.smtLbls.push(label.new(int(math.round((ax1 + ax2) / 2.0)), (s.c1Px + s.extreme) / 2, txt, xloc = xloc.bar_index, yloc = yloc.price, style = not s.isBull ? label.style_label_down : label.style_label_up, color = na, textcolor = smtColorFor(not s.isBull), size = textSize(smtLblSize), text_font_family = font.family_default))
+            else if s.smtLbls.size() > 0
+                for lb in s.smtLbls
+                    label.delete(lb)
+                s.smtLbls.clear()
+        else if not na(s.smtLns) and s.smtLns.size() > 0
+            for ln in s.smtLns
+                line.delete(ln)
+            for lb in s.smtLbls
+                label.delete(lb)
+            s.smtLns.clear()
+            s.smtLbls.clear()
 
 // [REVEAL] A model is only drawn once its LTF CISD confirms. Everything that already happened is drawn then.
 method reveal(C2Setup s, bool onClose = false) =>
@@ -2192,6 +2302,17 @@ bool c2SellGo = c2SellTrigger and sellOk and showC2
 bool c3BuyGo  = c3BuyTrigger and buyOk and showC3 and not c2BuyGo
 bool c3SellGo = c3SellTrigger and sellOk and showC3 and not c2SellGo
 
+// Clear temporary early-C2 drawings before new setups allocate drawings on the HTF close
+if periodChanged
+    deleteSetupVisuals(earlyBuy)
+    earlyBuy  := na
+    deleteSetupVisuals(earlySell)
+    earlySell := na
+    earlyBullArmed      := false
+    earlyBearArmed      := false
+    earlyBullSmtAlerted := false
+    earlyBearSmtAlerted := false
+
 if (c2BuyGo or c3BuyGo) and bullReclaimed[1]
     consumeLastEarlyCisd(bullEarlyCisdRecords, bullReclaimBar[1])
 if (c2SellGo or c3SellGo) and bearReclaimed[1]
@@ -2277,6 +2398,56 @@ icMarkTakenAll(htfOpenT)
 buySetup  := buySetup.updateIc()
 sellSetup := sellSetup.updateIc()
 
+// [EARLY C2] temporary reversal SMT + dotted protected swings while C2 is still forming.
+// Runs after periodChanged cleanup and after htfCandles / pair folding, so same-bar periodChanged + early CISD works cleanly.
+if not bullReclaimed
+    earlyBullArmed      := false
+    earlyBullSmtAlerted := false
+if not bearReclaimed
+    earlyBearArmed      := false
+    earlyBearSmtAlerted := false
+
+if not na(earlyBuy) and (not showEarlyCisd or hideSetups or not validTf or not bullReclaimed or low < earlyBuy.extreme)
+    deleteSetupVisuals(earlyBuy)
+    earlyBuy := na
+if not na(earlySell) and (not showEarlyCisd or hideSetups or not validTf or not bearReclaimed or high > earlySell.extreme)
+    deleteSetupVisuals(earlySell)
+    earlySell := na
+
+if bullEarlyCisdFiredThisBar and barstate.isconfirmed
+    earlyBullArmed      := setupOk
+    earlyBullSmtAlerted := false
+    if showEarlyCisd and setupOk and htfCandles.size() > 1
+        deleteSetupVisuals(earlyBuy)
+        earlyBuy := newEarlySetup(true, htfCandles.first(), htfCandles.get(1), bullLevelFixed, bullIndexFixed, bar_index)
+if bearEarlyCisdFiredThisBar and barstate.isconfirmed
+    earlyBearArmed      := setupOk
+    earlyBearSmtAlerted := false
+    if showEarlyCisd and setupOk and htfCandles.size() > 1
+        deleteSetupVisuals(earlySell)
+        earlySell := newEarlySetup(false, htfCandles.first(), htfCandles.get(1), bearLevelFixed, bearIndexFixed, bar_index)
+
+if htfCandles.size() > 1
+    HtfCandle eCur  = htfCandles.first()
+    HtfCandle ePrev = htfCandles.get(1)
+    updateEarlySmt(earlyBuy, eCur, ePrev)
+    updateEarlySmt(earlySell, eCur, ePrev)
+    // Early SMT alerts follow the alert toggles, independent of the visual Show Early C2 CISD toggle
+    if barstate.isconfirmed and showAlerts and smtAlerts and earlyCisdAlerts and showC2 and calcOn and validTf and not hideSetups
+        if earlyBullArmed and bullReclaimed and bullPeriodSweep and not earlyBullSmtAlerted
+            [ed1, ed2] = earlySmtFlags(true, eCur, ePrev)
+            if ed1 or ed2
+                earlyBullSmtAlerted := true
+                alert('Bullish Early SMT Divergence on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
+        if earlyBearArmed and bearReclaimed and bearPeriodSweep and not earlyBearSmtAlerted
+            [ed1, ed2] = earlySmtFlags(false, eCur, ePrev)
+            if ed1 or ed2
+                earlyBearSmtAlerted := true
+                alert('Bearish Early SMT Divergence on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
+
+earlyBuy  := earlyBuy.updateIc()
+earlySell := earlySell.updateIc()
+
 // a CISD inside the bar only counts on the bar's close (a wick through the level that comes back would
 // alert on every bar otherwise)
 if not na(buySetup) and buySetup.justConfirmed
@@ -2323,9 +2494,6 @@ max_bars_back(close, 1500)
 // Drawings anchored far back (ADR lines from the day's first bar: ~1400 bars on 1m) need the bar's
 // time: without this, every new realtime bar asks one bar further than the buffer chosen on history.
 max_bars_back(time, 5000)
-// A drawing's left end is never moved further back than the time buffer allows
-xAnchor(int x) =>
-    na(x) ? na : math.max(x, bar_index - 4900)
 
 flLine(float px, int b, bool isBull, int swingBar) =>
     if not na(px) and not na(b) and b < bar_index
