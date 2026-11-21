@@ -1254,9 +1254,11 @@ icStep(C2Setup s, int m, bool live) =>
                                         isExt := false
                                         break
                             c4Ok := isExt
-                        // ... or it is still inside C3's range; beyond it no dot
+                        // ... or it is still inside C3's range, or (C2 model) beyond C3 on the trend side
                         if not c4Ok and not na(s.c3Hi) and not na(s.c3Lo)
                             c4Ok := swPx > s.c3Lo and swPx < s.c3Hi
+                            if not c4Ok and not s.c3Model
+                                c4Ok := s.isBull ? swPx > s.c3Hi : swPx < s.c3Lo
                 if c4Ok and (icInFvg(s, swPx, swIdx) or icSweepsSwing(s, swPx, swIdx))
                     registerIcCisd(s, swPx, swIdx, m)
                     if live and barstate.isconfirmed and showAlerts and protAlerts and (not s.early or earlyCisdAlerts)
