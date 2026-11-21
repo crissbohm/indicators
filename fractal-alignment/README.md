@@ -51,7 +51,7 @@ Manual choices: `1s-1m, 15s-5m, 1m-15m, 3m-30m, 5m-1H, 15m-4H, 1H-1D, 4H-1W, 1D-
 - **C3 model:** C2 does not close back inside; C3 closes beyond C2's body without taking C2's extreme.
 - **C4:** the continuation (its T-Spot).
 
-A model is drawn only once its **CISD** on the entry timeframe confirms. **History** sets how many earlier setups stay drawn next to the latest one (0 = only the latest). **Bias:** Neutral, Bullish, Bearish, or **Auto Bias 1 / 2** (only setups in the direction of the model one / two fractals higher while it runs; on 5m-1H: AB1 = 15m-4H, AB2 = 1H-1D).
+A model is drawn only once its **CISD** on the entry timeframe confirms. **History** sets how many earlier setups stay drawn next to the latest one (0 = only the latest). **Bias:** Neutral, Bullish, Bearish, or **Auto Bias 1 / 2** (only setups in the direction of the C2 or C3 closure model one / two fractals higher while it runs; with no higher model no setups show and the table reads `Bias: None`; on 5m-1H: AB1 = 15m-4H, AB2 = 1H-1D).
 
 On the chart:
 

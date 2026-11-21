@@ -23,7 +23,7 @@ showC3      = input.bool(true, 'C3', group = grpModel, inline = 'fractal')
 showC4      = input.bool(true, 'C4', group = grpModel, inline = 'fractal', tooltip = "Fractal: chart timeframe - model HTF. Automatic picks it from the chart (1m - 15m, 5m - 1H, 15m - 4H, 30m - 4H, 1H - 1D, 4H - 1W ...).\n\nC2: C2 closure models (C2 takes C1's high / low and closes back inside). C3: C3 closure models (C2 took C1 without closing back, C3 closes beyond C2's body without taking C2's extreme). C4: the C4 continuation (its T-Spot). A model is only drawn once its CISD confirms.")
 customLTF   = input.timeframe('60', 'Custom Fractal', group = grpModel, inline = 'custom', active = modelType == 'Custom')
 customHTF   = input.timeframe('1D', '-', group = grpModel, inline = 'custom', active = modelType == 'Custom', tooltip = 'Only used when Fractal is Custom: the entry timeframe and the HTF the model runs on.')
-biasFilter  = input.string('Neutral', 'Bias', options = ['Neutral', 'Bullish', 'Bearish', 'Auto Bias 1', 'Auto Bias 2'], group = grpModel, tooltip = 'Neutral: bullish and bearish setups. Bullish / Bearish: only setups of that side are shown.\n\nAuto Bias 1 / 2: follows the fractal model one / two steps higher (on 5m-1H: 15m-4H / 1H-1D). While that model runs (C3 and C4, until its C2 extreme is closed through) only setups in its direction are shown; with no higher model both sides show.')
+biasFilter  = input.string('Neutral', 'Bias', options = ['Neutral', 'Bullish', 'Bearish', 'Auto Bias 1', 'Auto Bias 2'], group = grpModel, tooltip = 'Neutral: bullish and bearish setups. Bullish / Bearish: only setups of that side are shown.\n\nAuto Bias 1 / 2: follows the fractal model one / two steps higher (on 5m-1H: 15m-4H / 1H-1D). While that model runs (C3 and C4, or C4 for a C3 model, until its extreme is closed through) only setups in its direction are shown; with no higher model no setups are shown.')
 
 grpCandles     = 'HTF Candles'
 htfCandleCount = input.int(4, 'HTF Candles', minval = 4, maxval = 40, group = grpCandles, tooltip = 'Candles in the model block (the HTF of the fractal), 4 to 40. At least 4: the model needs C1 to C4. HTF 1 / HTF 2 have their own count.')
@@ -1362,22 +1362,29 @@ abHtfOf() =>
     int s = timeframe.in_seconds()
     s <= 60 ? '15' : s <= 300 ? '60' : s <= 900 ? '240' : s <= 3600 ? '1D' : s <= 14400 ? '1W' : s <= 86400 ? '1M' : s <= 604800 ? '3M' : '12M'
 
-// Direction of the higher model, run on its own entry timeframe: C2 closure (takes C1's high / low, closes back
-// inside) + CISD (close through the open of the run into the C2 extreme). It holds through C3 and C4 and ends
-// when C4 closes or a close goes beyond the C2 extreme (XC2). A newer model replaces an older one.
+// Direction of the higher model, run on its own entry timeframe: C2 or C3 closure + CISD (close through
+// the open of the run into the extreme). C2 holds through C3 and C4, C3 through C4; ends when that window
+// closes or a close goes beyond the extreme (XC2 / XC3). A newer model replaces an older one.
 // +1 bullish, -1 bearish, 0 none.
 abDir() =>
     string htf = abHtfOf()
     // reads open / close up to ~1500 bars back below; one fixed deep read sizes this context's buffers up front
     float bufWarm = close[1499] + open[1499]
-    var float c1H = na
-    var float c1L = na
-    var float cH  = na
-    var float cL  = na
-    var int   cHb = na
-    var int   cLb = na
+    var float c2H  = na
+    var float c2L  = na
+    var float c1O  = na
+    var float c1H  = na
+    var float c1L  = na
+    var float c1C  = na
+    var int   c1Hb = na
+    var int   c1Lb = na
+    var float cO   = na
+    var float cH   = na
+    var float cL   = na
+    var int   cHb  = na
+    var int   cLb  = na
     var int   dir  = 0
-    var int   want = 0      // C2 closed, CISD not yet confirmed: +1 / -1
+    var int   want = 0      // C2 / C3 closed, CISD not yet confirmed: +1 / -1
     var float ext  = na
     var float lvl  = na
     var int   left = 0
@@ -1387,48 +1394,62 @@ abDir() =>
             if left == 0
                 dir  := 0
                 want := 0
-        float cc   = close[1]
-        bool  bear = not na(c1H) and cH > c1H and cc < c1H
-        bool  bull = not na(c1L) and cL < c1L and cc > c1L
-        if bear or bull
-            bool isBear = bear and (not bull or cHb > cLb)
-            int  eb     = isBear ? cHb : cLb
-            ext  := isBear ? cH : cL
+        float cc     = close[1]
+        bool  bearC2 = not na(c1H) and cH > c1H and cc < c1H
+        bool  bullC2 = not na(c1L) and cL < c1L and cc > c1L
+        bool  bearC3 = not bearC2 and not na(c2H) and not na(c1H) and c1H > c2H and c1C >= c2H and cH <= c1H and cc < math.min(c1O, c1C)
+        bool  bullC3 = not bullC2 and not na(c2L) and not na(c1L) and c1L < c2L and c1C <= c2L and cL >= c1L and cc > math.max(c1O, c1C)
+        bool  isC2   = bearC2 or bullC2
+        bool  isC3   = not isC2 and (bearC3 or bullC3)
+        if isC2 or isC3
+            bool isBear = isC2 ? (bearC2 and (not bullC2 or cHb > cLb)) : (bearC3 and (not bullC3 or c1Hb > c1Lb))
+            int  eb     = isC2 ? (isBear ? cHb : cLb) : (isBear ? c1Hb : c1Lb)
+            ext  := isC2 ? (isBear ? cH : cL) : (isBear ? c1H : c1L)
             // CISD level: open of the run of opposite candles that led into the extreme
             int   bias  = isBear ? 1 : -1
             float lv    = na
             bool  found = false
             int   off0  = bar_index - eb
-            for i = off0 to math.min(off0 + 300, bar_index, 1499)
-                int att = close[i] > open[i] ? 1 : close[i] < open[i] ? -1 : 0
-                if att == 0
-                    continue
-                if not found
-                    if att == bias
-                        found := true
-                        lv    := open[i]
-                else
-                    if att != bias
-                        break
-                    lv := open[i]
+            if not na(eb) and off0 >= 1 and off0 <= 1499
+                for i = off0 to math.min(off0 + 300, bar_index, 1499)
+                    int att = close[i] > open[i] ? 1 : close[i] < open[i] ? -1 : 0
+                    if att == 0
+                        continue
+                    if not found
+                        if att == bias
+                            found := true
+                            lv    := open[i]
+                    else
+                        if att != bias
+                            break
+                        lv := open[i]
             lvl  := lv
-            left := 2
+            left := isC2 ? 2 : 1
             dir  := 0
             want := isBear ? -1 : 1
-            // the CISD may already have closed through inside C2, on or after the extreme bar
-            if not na(lvl) and off0 >= 1 and off0 <= 1499
+            // the CISD may already have closed through inside C2 / C3, on or after the extreme bar
+            if not na(lvl) and not na(eb) and off0 >= 1 and off0 <= 1499
                 for i = 1 to off0
                     if (isBear and close[i] < lvl) or (not isBear and close[i] > lvl)
                         dir  := want
                         want := 0
                         break
-        c1H := cH
-        c1L := cL
-        cH  := high
-        cL  := low
-        cHb := bar_index
-        cLb := bar_index
+        c2H  := c1H
+        c2L  := c1L
+        c1O  := cO
+        c1H  := cH
+        c1L  := cL
+        c1C  := cc
+        c1Hb := cHb
+        c1Lb := cLb
+        cO   := open
+        cH   := high
+        cL   := low
+        cHb  := bar_index
+        cLb  := bar_index
     else
+        if na(cO)
+            cO := open
         if na(cH) or high > cH
             cH  := high
             cHb := bar_index
@@ -1452,8 +1473,10 @@ int    abBias  = 0
 // without a fractal only the Info Table's Bias row reads it
 if abSteps > 0 and (validTf or (tbl_show and tbl_bias))
     abBias := request.security(ticker.modify(syminfo.tickerid, settlement_as_close = settlement_as_close.off), abLtf, abDir()[1], lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = 5000)
-// the bias the setups follow: Bullish / Bearish / Neutral
-string biasNow = abSteps == 0 ? biasFilter : abBias > 0 ? 'Bullish' : abBias < 0 ? 'Bearish' : 'Neutral'
+// the bias the setups follow: Bullish / Bearish / Neutral (or None when Auto Bias has no higher model)
+string biasNow    = abSteps == 0 ? biasFilter : abBias > 0 ? 'Bullish' : abBias < 0 ? 'Bearish' : 'None'
+bool   biasBuyOk  = abSteps == 0 ? allowBuy  : abBias > 0
+bool   biasSellOk = abSteps == 0 ? allowSell : abBias < 0
 
 // [TIME FILTER] new setups only inside the checked windows, on charts below 'Apply below'
 inWindow(string sess) =>
@@ -2226,7 +2249,7 @@ if newBullLevel or na(bullLevelFixed)
 if barstate.isconfirmed and not na(bullLevelFixed) and not bullReclaimed and close > bullLevelFixed
     bullReclaimed  := true
     bullReclaimBar := bar_index
-    if showC2 and bullPeriodSweep and validTf and inTimeFilter and allowBuy and biasNow != 'Bearish'
+    if showC2 and bullPeriodSweep and validTf and inTimeFilter and biasBuyOk
         drawEarlyCisd(true, bullLevelFixed, bullIndexFixed, bar_index, l0)
         bullEarlyCisdFiredThisBar := true
 
@@ -2237,7 +2260,7 @@ if newBearLevel or na(bearLevelFixed)
 if barstate.isconfirmed and not na(bearLevelFixed) and not bearReclaimed and close < bearLevelFixed
     bearReclaimed  := true
     bearReclaimBar := bar_index
-    if showC2 and bearPeriodSweep and validTf and inTimeFilter and allowSell and biasNow != 'Bullish'
+    if showC2 and bearPeriodSweep and validTf and inTimeFilter and biasSellOk
         drawEarlyCisd(false, bearLevelFixed, bearIndexFixed, bar_index, h0)
         bearEarlyCisdFiredThisBar := true
 
@@ -2307,8 +2330,8 @@ if showPsp and periodChanged and htfCandles.size() > 2
     pspHit := pairPsp(pair1C, own1, own2) or pairPsp(pair2C, own1, own2)
 
 bool setupOk = calcOn and validTf and inTimeFilter and not hideSetups
-bool buyOk   = allowBuy and setupOk and biasNow != 'Bearish'
-bool sellOk  = allowSell and setupOk and biasNow != 'Bullish'
+bool buyOk   = biasBuyOk and setupOk
+bool sellOk  = biasSellOk and setupOk
 
 // [C3 CLOSURE] when C4 opens: C2 (get(2)) took C1's low (get(3)) without closing back inside (so no C2
 // model), then C3 (get(1)) stayed above C2's low and closed above C2's body. Bearish: the mirror.
@@ -2396,10 +2419,10 @@ if not na(pair2) and not na(pair2.h)
 
 // HTF candle flags (C1 sweep line and PSP on the model block): the same models, but Hide Setups keeps them
 bool htfMarkOk  = calcOn and validTf and inTimeFilter
-bool c2BuyMark  = c2BuyTrigger and showC2 and allowBuy and biasNow != 'Bearish' and htfMarkOk
-bool c3BuyMark  = c3BuyTrigger and showC3 and allowBuy and biasNow != 'Bearish' and htfMarkOk and not c2BuyMark
-bool c2SellMark = c2SellTrigger and showC2 and allowSell and biasNow != 'Bullish' and htfMarkOk
-bool c3SellMark = c3SellTrigger and showC3 and allowSell and biasNow != 'Bullish' and htfMarkOk and not c2SellMark
+bool c2BuyMark  = c2BuyTrigger and showC2 and biasBuyOk and htfMarkOk
+bool c3BuyMark  = c3BuyTrigger and showC3 and biasBuyOk and htfMarkOk and not c2BuyMark
+bool c2SellMark = c2SellTrigger and showC2 and biasSellOk and htfMarkOk
+bool c3SellMark = c3SellTrigger and showC3 and biasSellOk and htfMarkOk and not c2SellMark
 markTrigger(c2BuyMark or c3BuyMark, c3BuyMark ? 3 : 2, true)
 markTrigger(c2SellMark or c3SellMark, c3SellMark ? 3 : 2, false)
 
@@ -2948,7 +2971,7 @@ if barstate.islast and validTf and htfCandles.size() > 0 and not hideHtf
 
     // the forming candle's sweep only where its close could make a C2 model (same filters as the closed line)
     bool liveOk = showC2 and calcOn and validTf
-    updateLiveSweeps(htfCandles, liveOk and allowBuy and biasNow != 'Bearish', liveOk and allowSell and biasNow != 'Bullish')
+    updateLiveSweeps(htfCandles, liveOk and biasBuyOk, liveOk and biasSellOk)
 
     // block title (HTF Label + Remaining Time); HTF 1 / HTF 2 start to its right
     xTitle(int(math.round((blockLeft + blockRight) / 2.0)), mTop, mBot, autoTf, mPadTop, mPadBot)
@@ -3013,7 +3036,7 @@ if barstate.islast
         bool   bullish = biasNow == 'Bullish'
         bool   bearish = biasNow == 'Bearish'
         rows.push('Bias: ' + biasNow + (abSteps > 0 ? ' (AB' + str.tostring(abSteps) + ' ' + tfLabel(abLtf) + '-' + tfLabel(abHtf) + ')' : ''))
-        clrs.push(bullish ? cisdBullColor : bearish ? cisdBearColor : tbl_text_color)
+        clrs.push(bullish ? cisdBullColor : bearish ? cisdBearColor : biasNow == 'None' ? tbl_dim_color : tbl_text_color)
         szs.push(tbl_sz)
     if tbl_tfilter and useTimeFilter
         rows.push('Filter: ' + (not timeFilterActive ? 'not used' : inTimeFilter ? 'open' : 'closed'))
