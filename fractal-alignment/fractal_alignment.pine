@@ -1670,14 +1670,14 @@ xFetch(string sym, simple string tf, simple int n) =>
 xHasData(XData d) =>
     not na(d) and not na(d.t) and d.t.size() > 0
 
-// Intraday blocks above 1H: the pair's candles are rebuilt from its 1H bars (90m: 30m) inside our own candles,
-// counting only the hours our symbol trades too, like the model block (a pair with another session, like spot
-// gold against futures gold, gets our candle's open and close times). '' = the pair's own candles (D / W / M,
-// 15m-1H, or a chart timeframe that does not divide the hour).
+// Intraday blocks above 1H and the daily block: the pair's candles are rebuilt from its 1H bars (90m: 30m) inside
+// our own candles, counting only the hours our symbol trades too, like the model block (a pair with another
+// session, like spot gold against futures gold or DXY against a currency, gets our candle's open and close
+// times). '' = the pair's own candles (W / M, 15m-1H, or a chart timeframe that does not divide the hour).
 xSub(simple string tf) =>
     simple int s  = timeframe.in_seconds(tf)
     simple int cs = timeframe.in_seconds()
-    s < 86400 and s > 3600 and s % 3600 == 0 and 3600 % cs == 0 ? '60' : s < 86400 and s > 1800 and s % 1800 == 0 and 1800 % cs == 0 ? '30' : ''
+    s <= 86400 and s > 3600 and s % 3600 == 0 and 3600 % cs == 0 ? '60' : s < 86400 and s > 1800 and s % 1800 == 0 and 1800 % cs == 0 ? '30' : ''
 
 // Sub-bars per candle
 xRatio(simple string tf, simple string sub) =>
@@ -2317,15 +2317,19 @@ var int prevP1HtfT = na
 var int prevP2BarT = na
 var int prevP2HtfT = na
 
+// a new pair bar on this chart bar (a pair with another session, like DXY, repeats its last bar while it is closed)
+bool p1Fresh = pairFresh(pair1, prevP1BarT, prevP1HtfT, htfOpenT, periodChanged)
+bool p2Fresh = pairFresh(pair2, prevP2BarT, prevP2HtfT, htfOpenT, periodChanged)
+
 // [HTF SMT / PSP] fold this bar's pair high / low / open / close into the forming HTF candle
 if validTf and (show_smt or showPsp) and htfCandles.size() > 0
     HtfCandle htfNow = htfCandles.first()
-    if pairFresh(pair1, prevP1BarT, prevP1HtfT, htfOpenT, periodChanged)
+    if p1Fresh
         htfNow.pH := na(htfNow.pH) ? pair1.h : math.max(htfNow.pH, pair1.h)
         htfNow.pL := na(htfNow.pL) ? pair1.l : math.min(htfNow.pL, pair1.l)
         htfNow.pO := na(htfNow.pO) ? pair1.o : htfNow.pO
         htfNow.pC := pair1.c
-    if pairFresh(pair2, prevP2BarT, prevP2HtfT, htfOpenT, periodChanged)
+    if p2Fresh
         htfNow.qH := na(htfNow.qH) ? pair2.h : math.max(htfNow.qH, pair2.h)
         htfNow.qL := na(htfNow.qL) ? pair2.l : math.min(htfNow.qL, pair2.l)
         htfNow.qO := na(htfNow.qO) ? pair2.o : htfNow.qO
@@ -3167,10 +3171,11 @@ bool smtAlertOn = show_smt and showAlerts and smtAlerts and not hideSetups
 bool smtBufOn   = (smtOnChart or smtAlertOn) and (pair1Name != '' or pair2Name != '')
 smt_on = smtBufOn and calcOn
 
-float p1BarH = na(pair1) ? na : pair1.h
-float p1BarL = na(pair1) ? na : pair1.l
-float p2BarH = na(pair2) ? na : pair2.h
-float p2BarL = na(pair2) ? na : pair2.l
+// only a fresh pair bar counts: a repeated old bar (the pair closed, our symbol trading) is not new data
+float p1BarH = p1Fresh ? pair1.h : na
+float p1BarL = p1Fresh ? pair1.l : na
+float p2BarH = p2Fresh ? pair2.h : na
+float p2BarL = p2Fresh ? pair2.l : na
 // The pairs' bar highs / lows of the last bars, kept in arrays: a function that only runs on some bars
 // cannot read a series' history (it would see the values of its earlier calls).
 SMT_BUF = 1500
