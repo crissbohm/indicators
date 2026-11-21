@@ -1032,7 +1032,7 @@ createStdDevProjections(C2Setup s) =>
                 float bExt = s.isBull ? bLo : bHi
                 if not na(bExt)
                     level1 := bExt
-            int   leftBar    = s.c2BarIndex
+            int   leftBar    = xAnchor(s.c2BarIndex)
             float priceRange = s.isBull ? level0 - level1 : level1 - level0
             lbs = array.new<label>()
             lns = array.new<line>()
@@ -1054,7 +1054,7 @@ confirmCisd(C2Setup s, int confirmBar, bool live = true) =>
     lnWidth  = s.isBull ? cisdBullWidth : cisdBearWidth
     if showLine
         // line only, ending one candle after the candle that closed through the level
-        s.cisdLine := line.new(s.cisdIndex, s.cisdLevel, confirmBar + 1, s.cisdLevel, color = clr, style = lineStyleFromStr(lnStyle), width = lnWidth)
+        s.cisdLine := line.new(xAnchor(s.cisdIndex), s.cisdLevel, confirmBar + 1, s.cisdLevel, color = clr, style = lineStyleFromStr(lnStyle), width = lnWidth)
     createStdDevProjections(s)
 
 icClearPending(C2Setup s) =>
