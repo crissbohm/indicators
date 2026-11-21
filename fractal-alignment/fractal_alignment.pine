@@ -122,7 +122,7 @@ smtDisplay    = input.string('Both', 'SMT Display', options = ['Both', 'Chart', 
 smtLabels     = input.bool(true, 'Labels?', group = grpSmt, inline = 'smtlbl')
 smtLblSize    = input.string('Small', '', options = ['Tiny', 'Small', 'Normal', 'Large'], group = grpSmt, inline = 'smtlbl', active = smtLabels, tooltip = 'On the chart the label names the pair that made the SMT. The HTF candles show the line only.')
 pairMode      = input.string('Automatic', 'Correlated Pairs', options = ['Automatic', 'Custom'], group = grpSmt, inline = 'pairs')
-useSecondPair = input.bool(true, 'Enable Second Pair?', group = grpSmt, inline = 'pairs', tooltip = "Automatic:\nFutures (micros too): NQ / ES / YM / RTY with each other, GC / SI ↔ the same metal in EUR + GBP, CL / RB / HO with each other, FDAX / FESX / Z (FTSE) with each other, 6E ↔ 6B, 6A ↔ 6N, 6J / 6S / 6C with each other, BTC ↔ ETH\nCFD (same broker): US100 / US500 / US30 with each other, GER40 / UK100 / EU50 with each other, XAUUSD / XAGUSD ↔ EUR + GBP, EURUSD ↔ GBPUSD, AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD with each other, oil ↔ gasoline + heating oil, BTC ↔ ETH and similar\n\nCustom: the two symbols below.")
+useSecondPair = input.bool(true, 'Enable Second Pair?', group = grpSmt, inline = 'pairs', tooltip = "Automatic:\nFutures (micros too): NQ / ES / YM / RTY with each other, GC / SI ↔ the same metal in EUR + GBP, CL / RB / HO with each other, FDAX / FESX / Z (FTSE) with each other, 6E / 6B ↔ each other + DXY (inverse), 6A ↔ 6N, 6J / 6S / 6C with each other, BTC ↔ ETH\nCFD (same broker): US100 / US500 / US30 with each other, GER40 / UK100 / EU50 with each other, XAUUSD / XAGUSD ↔ EUR + GBP, EURUSD / GBPUSD ↔ each other + DXY (inverse), AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD with each other, oil ↔ gasoline + heating oil, BTC ↔ ETH and similar\n\nCustom: the two symbols below.")
 pair1In       = input.symbol('CME_MINI:ES1!', '1.', group = grpSmt, inline = 'p1', active = pairMode == 'Custom')
 pair1Inv      = input.bool(false, 'Inverse?', group = grpSmt, inline = 'p1', active = pairMode == 'Custom', tooltip = 'Inverse: the pair moves opposite to this symbol (e.g. DXY against EURUSD). Its highs are compared with your lows.')
 pair2In       = input.symbol('CME_MINI:NQ1!', '2.', group = grpSmt, inline = 'p2', active = pairMode == 'Custom' and useSecondPair)
@@ -472,8 +472,10 @@ f_fut_pairs(string t) =>
         f2 := 'EUREX:FESX1!'
     else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6E') or str.startswith(t, 'M6E'))
         f1 := 'CME:6B1!'
+        f2 := 'TVC:DXY'
     else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6B') or str.startswith(t, 'M6B'))
         f1 := 'CME:6E1!'
+        f2 := 'TVC:DXY'
     else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6A') or str.startswith(t, 'M6A'))
         f1 := 'CME:6N1!'
     else if str.startswith(syminfo.prefix, 'CME') and str.startswith(t, '6N')
@@ -507,8 +509,8 @@ f_smt_pairs(string t) =>
         'GOLD'   => ['XAUEUR', 'OANDA:XAUEUR', 'XAUGBP', 'OANDA:XAUGBP']
         'XAGUSD' => ['XAGEUR', 'OANDA:XAGEUR', 'XAGGBP', 'OANDA:XAGGBP']
         'SILVER' => ['XAGEUR', 'OANDA:XAGEUR', 'XAGGBP', 'OANDA:XAGGBP']
-        'EURUSD' => ['GBPUSD', '', '', '']
-        'GBPUSD' => ['EURUSD', '', '', '']
+        'EURUSD' => ['GBPUSD', '', 'TVC:DXY', '']
+        'GBPUSD' => ['EURUSD', '', 'TVC:DXY', '']
         'AUDUSD' => ['NZDUSD', '', '', '']
         'NZDUSD' => ['AUDUSD', '', '', '']
         'USDJPY' => ['USDCHF', '', 'USDCAD', '']
@@ -616,8 +618,8 @@ string pair1A     = smtCustom ? (pair1In == ticker.standard(syminfo.tickerid) ? 
 string pair1B     = smtCustom ? '' : smtB1
 string pair2A     = not useSecondPair ? '' : smtCustom ? (pair2In == ticker.standard(syminfo.tickerid) ? '' : pair2In) : smtA2
 string pair2B     = not useSecondPair or smtCustom ? '' : smtB2
-bool   pair1InvOn = smtCustom and pair1Inv
-bool   pair2InvOn = smtCustom and pair2Inv
+bool   pair1InvOn = smtCustom ? pair1Inv : pair1A == 'TVC:DXY'
+bool   pair2InvOn = smtCustom ? pair2Inv : pair2A == 'TVC:DXY'
 
 //#endregion
 
