@@ -122,7 +122,7 @@ smtDisplay    = input.string('Both', 'SMT Display', options = ['Both', 'Chart', 
 smtLabels     = input.bool(true, 'Labels?', group = grpSmt, inline = 'smtlbl')
 smtLblSize    = input.string('Small', '', options = ['Tiny', 'Small', 'Normal', 'Large'], group = grpSmt, inline = 'smtlbl', active = smtLabels, tooltip = 'On the chart the label names the pair that made the SMT. The HTF candles show the line only.')
 pairMode      = input.string('Automatic', 'Correlated Pairs', options = ['Automatic', 'Custom'], group = grpSmt, inline = 'pairs')
-useSecondPair = input.bool(true, 'Enable Second Pair?', group = grpSmt, inline = 'pairs', tooltip = "Automatic:\nFutures (micros too): NQ / ES / YM / RTY with each other, GC / SI ↔ the same metal in EUR + GBP, CL / RB / HO with each other, FDAX / FESX / Z (FTSE) with each other, 6E / 6B ↔ each other + DXY (inverse), 6A ↔ 6N, 6J / 6S / 6C with each other, BTC ↔ ETH\nCFD (same broker): US100 / US500 / US30 with each other, GER40 / UK100 / EU50 with each other, XAUUSD / XAGUSD ↔ EUR + GBP, EURUSD / GBPUSD ↔ each other + DXY (inverse), AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD with each other, oil ↔ gasoline + heating oil, BTC ↔ ETH and similar\n\nCustom: the two symbols below.")
+useSecondPair = input.bool(true, 'Enable Second Pair?', group = grpSmt, inline = 'pairs', tooltip = "Automatic:\nFutures (micros too): NQ / ES / YM with each other, RTY ↔ YM, GC / SI ↔ the same metal in EUR + GBP, CL / RB / HO with each other, FDAX / FESX / Z (FTSE) with each other, 6E / 6B and 6A / 6N ↔ each other + DXY (inverse), BTC ↔ ETH\nCFD (same broker): US100 / US500 / US30 with each other, GER40 / UK100 / EU50 with each other, XAUUSD / XAGUSD ↔ EUR + GBP, EURUSD / GBPUSD and AUDUSD / NZDUSD ↔ each other + DXY (inverse), USDJPY / USDCHF / USDCAD ↔ DXY, oil ↔ gasoline + heating oil, BTC ↔ ETH and similar\n\nCustom: the two symbols below.")
 pair1In       = input.symbol('CME_MINI:ES1!', '1.', group = grpSmt, inline = 'p1', active = pairMode == 'Custom')
 pair1Inv      = input.bool(false, 'Inverse?', group = grpSmt, inline = 'p1', active = pairMode == 'Custom', tooltip = 'Inverse: the pair moves opposite to this symbol (e.g. DXY against EURUSD). Its highs are compared with your lows.')
 pair2In       = input.symbol('CME_MINI:NQ1!', '2.', group = grpSmt, inline = 'p2', active = pairMode == 'Custom' and useSecondPair)
@@ -429,8 +429,8 @@ f_fut_pairs(string t) =>
         f1 := 'MES1!'
         f2 := 'MNQ1!'
     else if str.startswith(t, 'M2K')
-        f1 := 'MES1!'
-        f2 := 'MNQ1!'
+        // the Russell pairs with the Dow only
+        f1 := 'MYM1!'
     else if str.startswith(t, 'MGC')
         f1 := 'OANDA:XAUEUR'
         f2 := 'OANDA:XAUGBP'
@@ -443,9 +443,11 @@ f_fut_pairs(string t) =>
     else if str.startswith(t, 'NQ')
         f1 := 'ES1!'
         f2 := 'YM1!'
-    else if str.startswith(t, 'YM') or str.startswith(t, 'RTY')
+    else if str.startswith(t, 'YM')
         f1 := 'ES1!'
         f2 := 'NQ1!'
+    else if str.startswith(t, 'RTY')
+        f1 := 'YM1!'
     else if str.startswith(t, 'GC')
         // a metal pairs with the same metal in euro and pound
         f1 := 'OANDA:XAUEUR'
@@ -480,17 +482,11 @@ f_fut_pairs(string t) =>
         f2 := 'TVC:DXY'
     else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6A') or str.startswith(t, 'M6A'))
         f1 := 'CME:6N1!'
+        f2 := 'TVC:DXY'
     else if str.startswith(syminfo.prefix, 'CME') and str.startswith(t, '6N')
         f1 := 'CME:6A1!'
-    else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6J') or str.startswith(t, 'MJY'))
-        f1 := 'CME:6S1!'
-        f2 := 'CME:6C1!'
-    else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6S') or str.startswith(t, 'MSF'))
-        f1 := 'CME:6J1!'
-        f2 := 'CME:6C1!'
-    else if str.startswith(syminfo.prefix, 'CME') and (str.startswith(t, '6C') or str.startswith(t, 'MCD'))
-        f1 := 'CME:6S1!'
-        f2 := 'CME:6J1!'
+        f2 := 'TVC:DXY'
+    // 6J / 6S / 6C (yen, franc, Canadian dollar) have no automatic pair
     else if str.startswith(t, 'BTC')
         f1 := 'ETH1!'
     else if str.startswith(t, 'ETH')
@@ -513,11 +509,12 @@ f_smt_pairs(string t) =>
         'SILVER' => ['XAGEUR', 'OANDA:XAGEUR', 'XAGGBP', 'OANDA:XAGGBP']
         'EURUSD' => ['GBPUSD', '', 'TVC:DXY', '']
         'GBPUSD' => ['EURUSD', '', 'TVC:DXY', '']
-        'AUDUSD' => ['NZDUSD', '', '', '']
-        'NZDUSD' => ['AUDUSD', '', '', '']
-        'USDJPY' => ['USDCHF', '', 'USDCAD', '']
-        'USDCHF' => ['USDJPY', '', 'USDCAD', '']
-        'USDCAD' => ['USDCHF', '', 'USDJPY', '']
+        'AUDUSD' => ['NZDUSD', '', 'TVC:DXY', '']
+        'NZDUSD' => ['AUDUSD', '', 'TVC:DXY', '']
+        // dollar-first pairs move with the dollar index: DXY only, not inverted
+        'USDJPY' => ['TVC:DXY', '', '', '']
+        'USDCHF' => ['TVC:DXY', '', '', '']
+        'USDCAD' => ['TVC:DXY', '', '', '']
         // European indices: DAX <-> FTSE 100 + Euro Stoxx 50
         'GER40'   => ['UK100', '', 'EU50', 'EUSTX50']
         'DE40'    => ['UK100', '', 'EU50', 'EUSTX50']
@@ -620,8 +617,10 @@ string pair1A     = smtCustom ? (pair1In == ticker.standard(syminfo.tickerid) ? 
 string pair1B     = smtCustom ? '' : smtB1
 string pair2A     = not useSecondPair ? '' : smtCustom ? (pair2In == ticker.standard(syminfo.tickerid) ? '' : pair2In) : smtA2
 string pair2B     = not useSecondPair or smtCustom ? '' : smtB2
-bool   pair1InvOn = smtCustom ? pair1Inv : pair1A == 'TVC:DXY'
-bool   pair2InvOn = smtCustom ? pair2Inv : pair2A == 'TVC:DXY'
+// DXY runs against a symbol quoted in dollars (EURUSD, 6E) and with a dollar-first one (USDJPY)
+bool   dxyInv     = not str.startswith(smt_ticker, 'USD')
+bool   pair1InvOn = smtCustom ? pair1Inv : pair1A == 'TVC:DXY' and dxyInv
+bool   pair2InvOn = smtCustom ? pair2Inv : pair2A == 'TVC:DXY' and dxyInv
 
 //#endregion
 
