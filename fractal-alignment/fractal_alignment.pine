@@ -1611,7 +1611,7 @@ string   pair2Base = pair2A == '' ? '' : use2b ? pair2B : pair2A
 
 // [EXTRA HTF] HTF 1 / HTF 2: higher timeframe candle blocks right of the model block.
 // No model runs on them. Each block is requested on its own timeframe (a 1m chart's 2000 bars cannot
-// build daily candles), and each pair the same way, so SMT / PSP reach the older candles too.
+// build daily candles); each pair the same way (above 1H: from its 1H bars, see xSub), so SMT / PSP reach the older candles too.
 xSelTf(simple string s) =>
     switch s
         '15m' => '15'
@@ -1665,11 +1665,62 @@ xReq(simple int n) =>
 // Futures D / W / M candles close at the last trade, not the settlement, like the model block.
 xFetch(string sym, simple string tf, simple int n) =>
     simple bool whole = timeframe.in_seconds(tf) % timeframe.in_seconds() == 0
-    [o, h, l, c, t] = request.security(ticker.modify(sym, settlement_as_close = settlement_as_close.off), tf, xReq(n),lookahead = whole ? barmerge.lookahead_on : barmerge.lookahead_off, ignore_invalid_symbol = true, calc_bars_count = 100)
+    [o, h, l, c, t] = request.security(ticker.modify(sym, settlement_as_close = settlement_as_close.off), tf, xReq(n),lookahead = whole ? barmerge.lookahead_on : barmerge.lookahead_off, ignore_invalid_symbol = true, calc_bars_count = math.max(100, n + 10))
     XData.new(o, h, l, c, t)
 
 xHasData(XData d) =>
     not na(d) and not na(d.t) and d.t.size() > 0
+
+// Intraday blocks above 1H: the pair's candles are rebuilt from its 1H bars (90m: 30m) inside our own candles,
+// counting only the hours our symbol trades too, like the model block (a pair with another session, like spot
+// gold against futures gold, gets our candle's open and close times). '' = the pair's own candles (D / W / M,
+// 15m-1H, or a chart timeframe that does not divide the hour).
+xSub(simple string tf) =>
+    simple int s  = timeframe.in_seconds(tf)
+    simple int cs = timeframe.in_seconds()
+    s < 86400 and s > 3600 and s % 3600 == 0 and 3600 % cs == 0 ? '60' : s < 86400 and s > 1800 and s % 1800 == 0 and 1800 % cs == 0 ? '30' : ''
+
+// Sub-bars per candle
+xRatio(simple string tf, simple string sub) =>
+    sub == '' ? 1 : int(math.round(timeframe.in_seconds(tf) / timeframe.in_seconds(sub)))
+
+// raw = the pair's sub-bars, own = our sub-bars, d = our candles (all newest first); returns the pair's candles
+// with d's open times. A candle holds the sub-bars from its open to the next candle's open.
+xFold(XData raw, XData own, XData d) =>
+    XData res = na
+    if xHasData(raw) and xHasData(own) and xHasData(d)
+        int n = d.t.size()
+        array<float> fo = array.new<float>(n, na)
+        array<float> fh = array.new<float>(n, na)
+        array<float> fl = array.new<float>(n, na)
+        array<float> fc = array.new<float>(n, na)
+        int i = 0
+        for k = 0 to own.t.size() - 1
+            int s = own.t.get(k)
+            while i < n - 1 and s < d.t.get(i)
+                i += 1
+            if s < d.t.get(i)
+                break
+            int j = raw.t.indexof(s)
+            if j >= 0
+                float h = raw.h.get(j)
+                float l = raw.l.get(j)
+                if na(fc.get(i))
+                    fc.set(i, raw.c.get(j))
+                fo.set(i, raw.o.get(j))
+                fh.set(i, na(fh.get(i)) ? h : math.max(fh.get(i), h))
+                fl.set(i, na(fl.get(i)) ? l : math.min(fl.get(i), l))
+        res := XData.new(fo, fh, fl, fc, d.t.copy())
+    res
+
+// The pair's candles for one block (sub = xSub(tf), own = our sub-bars, d = our candles)
+xPairFetch(string sym, simple string tf, simple string sub, simple int n, XData own, XData d) =>
+    XData res = na
+    if sub == ''
+        res := xFetch(sym, tf, n)
+    else
+        res := xFold(xFetch(sym, sub, n * xRatio(tf, sub) * 2 + 72), own, d)
+    res
 
 XData x1D  = na
 XData x1P  = na
@@ -1685,26 +1736,34 @@ XData x2Qb = na
 bool xPairsOn = smtOnHtf or showPsp
 bool xNeed1b  = not pairBarsOn and xPairsOn and pair1B != ''
 bool xNeed2b  = not pairBarsOn and xPairsOn and pair2B != ''
+string x1Sub  = xSub(x1Tf)
+string x2Sub  = xSub(x2Tf)
+XData  x1S    = na
+XData  x2S    = na
 if x1On
     x1D := xFetch(syminfo.tickerid, x1Tf, x1Count)
+    if xPairsOn and x1Sub != '' and (pair1Base != '' or pair2Base != '')
+        x1S := xFetch(syminfo.tickerid, x1Sub, x1Count * xRatio(x1Tf, x1Sub))
     if xPairsOn and pair1Base != ''
-        x1P := xFetch(pair1Base, x1Tf, x1Count)
+        x1P := xPairFetch(pair1Base, x1Tf, x1Sub, x1Count, x1S, x1D)
     if xNeed1b
-        x1Pb := xFetch(pair1B, x1Tf, x1Count)
+        x1Pb := xPairFetch(pair1B, x1Tf, x1Sub, x1Count, x1S, x1D)
     if xPairsOn and pair2Base != ''
-        x1Q := xFetch(pair2Base, x1Tf, x1Count)
+        x1Q := xPairFetch(pair2Base, x1Tf, x1Sub, x1Count, x1S, x1D)
     if xNeed2b
-        x1Qb := xFetch(pair2B, x1Tf, x1Count)
+        x1Qb := xPairFetch(pair2B, x1Tf, x1Sub, x1Count, x1S, x1D)
 if x2On
     x2D := xFetch(syminfo.tickerid, x2Tf, x2Count)
+    if xPairsOn and x2Sub != '' and (pair1Base != '' or pair2Base != '')
+        x2S := xFetch(syminfo.tickerid, x2Sub, x2Count * xRatio(x2Tf, x2Sub))
     if xPairsOn and pair1Base != ''
-        x2P := xFetch(pair1Base, x2Tf, x2Count)
+        x2P := xPairFetch(pair1Base, x2Tf, x2Sub, x2Count, x2S, x2D)
     if xNeed1b
-        x2Pb := xFetch(pair1B, x2Tf, x2Count)
+        x2Pb := xPairFetch(pair1B, x2Tf, x2Sub, x2Count, x2S, x2D)
     if xPairsOn and pair2Base != ''
-        x2Q := xFetch(pair2Base, x2Tf, x2Count)
+        x2Q := xPairFetch(pair2Base, x2Tf, x2Sub, x2Count, x2S, x2D)
     if xNeed2b
-        x2Qb := xFetch(pair2B, x2Tf, x2Count)
+        x2Qb := xPairFetch(pair2B, x2Tf, x2Sub, x2Count, x2S, x2D)
 
 bool xHas1a = xHasData(x1P) or xHasData(x2P)
 bool xHas1b = xHasData(x1Pb) or xHasData(x2Pb)
