@@ -77,7 +77,7 @@ On the chart:
 ## Asset Correlation (SMT + PSP)
 
 - Two pairs, automatic, from the chart's own broker:
-  - Futures: NQ ↔ ES + YM, ES ↔ NQ + YM, YM / RTY ↔ ES + NQ, GC ↔ XAUEUR + XAUGBP, SI ↔ XAGEUR + XAGGBP, CL ↔ RB + HO, HO ↔ CL + RB, RB ↔ CL + HO, FDAX / FDXM ↔ FESX + Z (FTSE), FESX ↔ FDAX + Z, Z ↔ FDAX + FESX, BTC ↔ ETH (micros too). A dated contract (NQZ2026) pairs with the same contract (ESZ2026).
+  - Futures: NQ ↔ ES + YM, ES ↔ NQ + YM, YM / RTY ↔ ES + NQ, GC ↔ XAUEUR + XAUGBP, SI ↔ XAGEUR + XAGGBP, CL ↔ RB + HO, HO ↔ CL + RB, RB ↔ CL + HO, FDAX / FDXM ↔ FESX + Z (FTSE), FESX ↔ FDAX + Z, Z ↔ FDAX + FESX, 6E ↔ 6B, 6A ↔ 6N, 6J / 6S / 6C with each other (CME currencies), BTC ↔ ETH (micros too). A dated contract (NQZ2026) pairs with the same contract (ESZ2026).
   - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, GER40 / DE40 / GER30 ↔ UK100 + EU50 / EUSTX50 / STOXX50 / EURO50 (OANDA: DE30EUR ↔ UK100GBP + EU50EUR), XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD, AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD, USOIL ↔ GASOLINEF + HEATINGOILF (FXCM).
   - Crypto: BTCUSDT ↔ ETHUSDT (also `.P` perpetuals and BTCUSD ↔ ETHUSD).
   - `Custom`: two symbols by hand, each with `Inverse?` (e.g. DXY).
