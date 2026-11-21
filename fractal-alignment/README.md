@@ -81,7 +81,7 @@ On the chart:
   - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, GER40 / DE40 / GER30 ↔ UK100 + EU50 / EUSTX50 / STOXX50 / EURO50 (OANDA: DE30EUR ↔ UK100GBP + EU50EUR), XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD + DXY (inverse), GBPUSD ↔ EURUSD + DXY (inverse), AUDUSD ↔ NZDUSD, USDJPY / USDCHF / USDCAD, USOIL ↔ GASOLINEF + HEATINGOILF (FXCM).
   - Crypto: BTCUSDT ↔ ETHUSDT (also `.P` perpetuals and BTCUSD ↔ ETHUSD).
   - `Custom`: two symbols by hand, each with `Inverse?` (e.g. DXY).
-- **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price). The label names the pair.
+- **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** during C3, after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price; C4 adds nothing). The label names the pair.
 - **SMT colors:** two swatches on the `SMT Line` row: bullish SMT (blue) and bearish SMT (red), for the lines and pair names on the chart and on every HTF block.
 - **PSP:** C1 and / or C2 close a different color than the pair's same candle (`Candle 1 / Candle 2 / Both`). The pair's candles are cut at the chart's own HTF candle times, so a pair with another session (spot gold against gold futures, DXY against euro futures) is compared over the same hours.
 

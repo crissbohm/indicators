@@ -3157,16 +3157,20 @@ f_smtCont(C2Setup s) =>
         bool isHigh = not s.isBull
         int  start  = s.csStart
         if not na(start) and bar_index >= start
+            // The check runs over C3 only (C2 -> C3, like the HTF candles); C4 adds no new step.
             if not s.csInit
-                // first bar of the check: replay the bars since the C2 candle closed (C3 model: since C3 opened)
-                int n = pBuf1H.size()
-                for x = math.max(start, bar_index - n + 1) to bar_index
-                    int   off = bar_index - x
-                    float v1  = (isHigh ? pBuf1H : pBuf1L).get(n - 1 - off)
-                    float v2  = (isHigh ? pBuf2H : pBuf2L).get(n - 1 - off)
-                    f_csStep(s, isHigh, isHigh ? high[off] : low[off], x, v1, v2)
+                // first bar of the check: replay the bars since the C2 candle closed (C3 model: C3, up to the bar
+                // before C4 opened)
+                int n    = pBuf1H.size()
+                int endX = s.c3Model ? bar_index - 1 : bar_index
+                if endX >= start
+                    for x = math.max(start, bar_index - n + 1) to endX
+                        int   off = bar_index - x
+                        float v1  = (isHigh ? pBuf1H : pBuf1L).get(n - 1 - off)
+                        float v2  = (isHigh ? pBuf2H : pBuf2L).get(n - 1 - off)
+                        f_csStep(s, isHigh, isHigh ? high[off] : low[off], x, v1, v2)
                 s.csInit := true
-            else
+            else if s.phase == 1
                 f_csStep(s, isHigh, isHigh ? high : low, bar_index, isHigh ? p1BarH : p1BarL, isHigh ? p2BarH : p2BarL)
             bool d1 = s.csDiv and f_beyond(isHigh, s.csRun1, s.c2P1)
             bool d2 = s.csDiv and f_beyond(isHigh, s.csRun2, s.c2P2)
