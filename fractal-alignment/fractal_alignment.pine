@@ -323,6 +323,7 @@ type C2Setup
     float        csRun2   = na
     bool         csDiv    = false
     bool         csTook   = false   // our price reached the C2 extreme before any divergence
+    bool         csAlerted = false  // the continuation SMT alert went out (also without a chart line)
     float        csOwnPx  = na
     int          csOwnBar = na
     line         csLn     = na
@@ -971,7 +972,7 @@ drawEarlyCisd(bool isBull, float level, int idx, int confirmBar, float extreme) 
     color clr = isBull ? cisdBullColor : cisdBearColor
     if showEarlyCisd and calcOn and not hideSetups
         // line only, ending one candle after the candle that closed through the level
-        ln = line.new(idx, level, confirmBar + 1, level, color = clr, style = lineStyleFromStr(earlyCisdStyle), width = 1)
+        ln = line.new(xAnchor(idx), level, confirmBar + 1, level, color = clr, style = lineStyleFromStr(earlyCisdStyle), width = 1)
         target.push(EarlyCisdRecord.new(ln, confirmBar, extreme))
     if showAlerts and earlyCisdAlerts and calcOn and not hideSetups
         alert((isBull ? 'Bullish' : 'Bearish') + ' Potential Candle 2 on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
@@ -1131,9 +1132,11 @@ c4LabelDodge(C2Setup s) =>
 registerIcCisd(C2Setup s, float swPx, int swIdx, int brokeBar) =>
     color  clr     = s.isBull ? protBullColor : protBearColor
     string lnStyle = s.early ? earlyCisdStyle : protStyle
-    label  dotLbl  = label.new(xAnchor(swIdx), swPx, '●', xloc = xloc.bar_index, style = s.isBull ? label.style_label_up : label.style_label_down, color = na, textcolor = clr, size = textSize(icCisdDotSize), text_font_family = font.family_default)
+    // an early C2 setup kept only for its alerts (Show Early C2 CISD off) draws nothing
+    bool   drawIc  = not s.early or showEarlyCisd
+    label  dotLbl  = not drawIc ? na : label.new(xAnchor(swIdx), swPx, '●', xloc = xloc.bar_index, style = s.isBull ? label.style_label_up : label.style_label_down, color = na, textcolor = clr, size = textSize(icCisdDotSize), text_font_family = font.family_default)
     // the level price closed through to confirm the swing; like the CISD line it ends one candle after that close
-    line   lvlLn   = not na(s.icLevel) and not na(s.icStartIndex) ? line.new(xAnchor(s.icStartIndex), s.icLevel, brokeBar + 1, s.icLevel, xloc = xloc.bar_index, color = clr, style = lineStyleFromStr(lnStyle), width = protWidth) : na
+    line   lvlLn   = drawIc and not na(s.icLevel) and not na(s.icStartIndex) ? line.new(xAnchor(s.icStartIndex), s.icLevel, brokeBar + 1, s.icLevel, xloc = xloc.bar_index, color = clr, style = lineStyleFromStr(lnStyle), width = protWidth) : na
     ic = ICCisd.new(swPx, dotLbl = dotLbl, isBull = s.isBull, ln = lvlLn, swBar = swIdx)
     if na(s.icList)
         s.icList := array.new<ICCisd>()
@@ -1857,7 +1860,7 @@ earlySmtFlags(bool isBull, HtfCandle cur, HtfCandle prev) =>
 updateEarlySmt(C2Setup s, HtfCandle cur, HtfCandle prev) =>
     if not na(s) and barstate.isconfirmed
         [d1, d2] = earlySmtFlags(s.isBull, cur, prev)
-        bool active = smtOnChart and (d1 or d2) and not na(s.c1Bar) and not na(s.c1Px) and not na(s.c2BarIndex)
+        bool active = showEarlyCisd and smtOnChart and (d1 or d2) and not na(s.c1Bar) and not na(s.c1Px) and not na(s.c2BarIndex)
         if active
             string txt = smtNames(d1, d2)
             if na(s.smtLns) or s.smtLns.size() == 0
@@ -1889,9 +1892,9 @@ method reveal(C2Setup s, bool onClose = false) =>
             s.c2Lbl := directionalLabel(nz(s.lblBar, s.c2BarIndex), nz(s.lblPx, s.extreme), s.tag, s.isBull)
         // [C1 SWEEP] on the chart: from the C1 high / low that was taken to the end of C2
         if sweepOnChart and validTf and not na(s.c1Bar) and not na(s.c1Px)
-            s.c1SweepLn := line.new(s.c1Bar, s.c1Px, s.sweepEnd, s.c1Px, xloc = xloc.bar_index, color = sweepColor, style = lineStyleFromStr(sweepStyle), width = sweepWidth)
+            s.c1SweepLn := line.new(xAnchor(s.c1Bar), s.c1Px, xAnchor(s.sweepEnd), s.c1Px, xloc = xloc.bar_index, color = sweepColor, style = lineStyleFromStr(sweepStyle), width = sweepWidth)
         if s.c3Model and showLabels and validTf and not na(s.c3LnBar) and not na(s.lblPx)
-            s.c3Ln := line.new(s.c3LnBar, s.lblPx, bar_index + 1, s.lblPx, xloc = xloc.bar_index, color = sweepColor, style = line.style_dotted, width = 1)
+            s.c3Ln := line.new(xAnchor(s.c3LnBar), s.lblPx, bar_index + 1, s.lblPx, xloc = xloc.bar_index, color = sweepColor, style = line.style_dotted, width = 1)
         // [REVERSAL SMT] C2 took C1's high / low but a pair did not: line from the C1 extreme to the C2 extreme
         if smtOnChart and s.smtHit and validTf and not na(s.c1Bar) and not na(s.c1Px)
             smtDrawOn(s, s.c1Bar, s.c1Px, s.c2BarIndex, s.extreme, not s.isBull, s.smtTxt)
@@ -2448,30 +2451,33 @@ sellSetup := sellSetup.updateIc()
 
 // [EARLY C2] temporary reversal SMT + dotted protected swings while C2 is still forming.
 // Runs after periodChanged cleanup and after htfCandles / pair folding, so same-bar periodChanged + early CISD works cleanly.
-if not bullReclaimed
+// kept while Show Early C2 CISD is on, or (drawing nothing) for the early protected swing alert
+bool earlySetupOn = showEarlyCisd or (showAlerts and earlyCisdAlerts and protAlerts)
+// buyOk / sellOk: a bias or time filter that turns off while C2 forms drops the early setup too
+if not bullReclaimed or not buyOk
     earlyBullArmed      := false
     earlyBullSmtAlerted := false
-if not bearReclaimed
+if not bearReclaimed or not sellOk
     earlyBearArmed      := false
     earlyBearSmtAlerted := false
 
-if not na(earlyBuy) and (not showEarlyCisd or hideSetups or not validTf or not bullReclaimed or low < earlyBuy.extreme)
+if not na(earlyBuy) and (not earlySetupOn or not buyOk or not bullReclaimed or low < earlyBuy.extreme)
     deleteSetupVisuals(earlyBuy)
     earlyBuy := na
-if not na(earlySell) and (not showEarlyCisd or hideSetups or not validTf or not bearReclaimed or high > earlySell.extreme)
+if not na(earlySell) and (not earlySetupOn or not sellOk or not bearReclaimed or high > earlySell.extreme)
     deleteSetupVisuals(earlySell)
     earlySell := na
 
 if bullEarlyCisdFiredThisBar and barstate.isconfirmed
-    earlyBullArmed      := setupOk
+    earlyBullArmed      := buyOk
     earlyBullSmtAlerted := false
-    if showEarlyCisd and setupOk and htfCandles.size() > 1
+    if earlySetupOn and buyOk and htfCandles.size() > 1
         deleteSetupVisuals(earlyBuy)
         earlyBuy := newEarlySetup(true, htfCandles.first(), htfCandles.get(1), bullLevelFixed, bullIndexFixed, bar_index)
 if bearEarlyCisdFiredThisBar and barstate.isconfirmed
-    earlyBearArmed      := setupOk
+    earlyBearArmed      := sellOk
     earlyBearSmtAlerted := false
-    if showEarlyCisd and setupOk and htfCandles.size() > 1
+    if earlySetupOn and sellOk and htfCandles.size() > 1
         deleteSetupVisuals(earlySell)
         earlySell := newEarlySetup(false, htfCandles.first(), htfCandles.get(1), bearLevelFixed, bearIndexFixed, bar_index)
 
@@ -3136,7 +3142,10 @@ if barstate.islast
 // inside ours (bullish: a pair makes a lower low, we a higher low). The line joins our C2 extreme and our
 // bar at that moment; from then the end slides to our further extremes (still not beyond C2).
 // One line per setup, live until the setup ends.
-smt_on = smtOnChart and calcOn and (pair1Name != '' or pair2Name != '')
+// the alert works without the chart drawing (SMT Display = HTF Candles); drawing stays with smtOnChart
+bool smtAlertOn = show_smt and showAlerts and smtAlerts and not hideSetups
+bool smtBufOn   = (smtOnChart or smtAlertOn) and (pair1Name != '' or pair2Name != '')
+smt_on = smtBufOn and calcOn
 
 float p1BarH = na(pair1) ? na : pair1.h
 float p1BarL = na(pair1) ? na : pair1.l
@@ -3150,7 +3159,7 @@ var array<float> pBuf1L = array.new<float>()
 var array<float> pBuf2H = array.new<float>()
 var array<float> pBuf2L = array.new<float>()
 // only filled when the chart SMT can use them (warm-up included, so the replay sees the same bars)
-if smtOnChart and (pair1Name != '' or pair2Name != '')
+if smtBufOn
     pBuf1H.push(p1BarH)
     pBuf1L.push(p1BarL)
     pBuf2H.push(p2BarH)
@@ -3160,11 +3169,6 @@ if smtOnChart and (pair1Name != '' or pair2Name != '')
         pBuf1L.shift()
         pBuf2H.shift()
         pBuf2L.shift()
-
-f_smt_draw(C2Setup s, int x1, float y1, int x2, float y2, bool isHigh, string txt) =>
-    smtDrawOn(s, x1, y1, x2, y2, isHigh, txt)
-    if showAlerts and smtAlerts
-        alert((isHigh ? 'Bearish' : 'Bullish') + ' SMT Divergence on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
 
 // beyond = further in the setup's direction of the extreme (bearish: higher, bullish: lower)
 f_beyond(bool isHigh, float a, float b) =>
@@ -3210,11 +3214,15 @@ f_smtCont(C2Setup s) =>
             bool d2 = s.csDiv and f_beyond(isHigh, s.csRun2, s.c2P2)
             if s.revealed and (d1 or d2)
                 string txt = smtNames(d1, d2)
-                if na(s.csLn)
-                    f_smt_draw(s, s.c2BarIndex, s.extreme, s.csOwnBar, s.csOwnPx, isHigh, txt)
+                if not s.csAlerted
+                    s.csAlerted := true
+                    if smtAlertOn
+                        alert((isHigh ? 'Bearish' : 'Bullish') + ' SMT Divergence on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
+                if smtOnChart and na(s.csLn)
+                    smtDrawOn(s, s.c2BarIndex, s.extreme, s.csOwnBar, s.csOwnPx, isHigh, txt)
                     s.csLn := s.smtLns.last()
                     s.csLb := txt != '' and s.smtLbls.size() > 0 ? s.smtLbls.last() : na
-                else
+                else if smtOnChart
                     if line.get_x2(s.csLn) != s.csOwnBar or line.get_y2(s.csLn) != s.csOwnPx
                         line.set_xy2(s.csLn, s.csOwnBar, s.csOwnPx)
                         if not na(s.csLb)
