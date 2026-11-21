@@ -1807,13 +1807,14 @@ periodChanged = htfOpenT != htfOpenT[1]
 
 
 // T-Spot geometry at the current bar: between the previous HTF candle's EQ and this candle's open
-// EQ rule: a C2 that closed against the setup (bullish setup, bearish C2; doji
-// too) uses its close -> wick extreme; otherwise, and always for C3, the full range.
+// EQ rule: a C2 that closed against the setup (bullish setup, bearish C2; doji too) or on the
+// wrong side of its own middle uses its close -> wick extreme; otherwise, and always for C3,
+// the full range.
 phaseGeom(bool isBull, bool c2Ref) =>
     float mid = (state.prevHigh + state.prevLow) / 2
     if c2Ref and htfCandles.size() > 1
         HtfCandle c = htfCandles.get(1)
-        if isBull ? c.c <= c.o : c.c >= c.o
+        if isBull ? (c.c <= c.o or c.c < mid) : (c.c >= c.o or c.c > mid)
             mid := isBull ? (c.c + c.l) / 2 : (c.c + c.h) / 2
     [math.max(open, mid), math.min(open, mid), mid]
 
@@ -1982,15 +1983,7 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
         // The C3 T-Spot is the part of the EQ zone (EQ <-> open) that overlaps the CISD zone: the CISD level
         // <-> the middle of the bodies of the run that made it (from the CISD candle to the extreme). No overlap
         // leaves EQ <-> open.
-        // EQ on the wrong side of C3's open (bearish: below it) with the CISD between them: the box and EQ go
-        // above the open instead, open <-> (C2 extreme + open) / 2.
-        bool cisdIn    = not na(cisdLevel) and cisdLevel > bot and cisdLevel < top
-        bool wrongSide = isBull ? mid > open : mid < open
-        if cisdIn and wrongSide
-            mid := ((isBull ? state.prevLow : state.prevHigh) + open) / 2
-            top := math.max(open, mid)
-            bot := math.min(open, mid)
-        else if not na(cisdLevel) and not na(cisdIndex) and not na(extremeBar)
+        if not na(cisdLevel) and not na(cisdIndex) and not na(extremeBar)
             [bLo, bHi] = cisdBodyBounds(cisdIndex, extremeBar)
             float c50  = na(bHi) ? cisdLevel : (bHi + bLo) / 2
             float oTop = math.min(top, math.max(cisdLevel, c50))
