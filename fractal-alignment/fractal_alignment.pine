@@ -1171,12 +1171,19 @@ icPoiStart(C2Setup s, int swIdx) =>
     math.max(na(s.c2BarIndex) ? swIdx - 150 : s.c2BarIndex, swIdx - 150)
 
 icInFvg(C2Setup s, float swPx, int swIdx) =>
-    bool hit   = false
-    int  first = math.max(icPoiStart(s, swIdx) + 2, bar_index - 1497)
+    bool  hit    = false
+    int   first  = math.max(icPoiStart(s, swIdx) + 2, bar_index - 1497)
+    int   lastSw = not na(s.icList) and s.icList.size() > 0 ? s.icList.last().swBar : na
+    // a gap already traded completely through by the previous protected swing's bar is spent
+    float run    = na
     if first < swIdx
         for b = swIdx - 1 to first
             int off = bar_index - b
-            if s.isBull ? (low[off] > high[off + 2] and swPx < low[off]) : (high[off] < low[off + 2] and swPx > high[off])
+            if not na(lastSw) and lastSw < swIdx and b < lastSw
+                float nx = s.isBull ? low[off - 1] : high[off - 1]
+                run := na(run) ? nx : s.isBull ? math.min(run, nx) : math.max(run, nx)
+            bool spent = not na(run) and (s.isBull ? run < high[off + 2] : run > low[off + 2])
+            if not spent and (s.isBull ? (low[off] > high[off + 2] and swPx < low[off]) : (high[off] < low[off + 2] and swPx > high[off]))
                 hit := true
                 break
     hit
