@@ -312,6 +312,7 @@ type C2Setup
     float c4Top     = na
     float c4Bottom  = na
     bool  c4Invalid = false
+    bool  c4Suppressed = false   // a newer opposite model's C3 runs in this candle: no C4 box / EQ / label
     int   c4InvBar  = na
     bool  justConfirmed = false
     array<ICCisd> icList = na
@@ -1914,7 +1915,7 @@ method reveal(C2Setup s, bool onClose = false) =>
                     box.set_right(s.c3Box, s.c4Start)
                 if not na(s.c3Dash)
                     line.set_x2(s.c3Dash, s.c4Start)
-        if s.phase == 2 and showC4 and not na(s.c4Start)
+        if s.phase == 2 and showC4 and not s.c4Suppressed and not na(s.c4Start)
             [bx4, dash4, lbl4] = drawPhaseAt(s.isBull, 4, s.c4Start, s.c4Top, s.c4Bottom, s.c4Mid, not s.c3Model)
             s.c4Box  := bx4
             s.c4Dash := dash4
@@ -2044,7 +2045,7 @@ method finish(C2Setup s) =>
     icFreeze(s)
     if not na(s.c4Box)
         box.set_right(s.c4Box, bar_index)
-    if not na(s.c4Dash) and not s.c4Invalid
+    if not na(s.c4Dash) and not s.c4Invalid and not s.c4Suppressed
         line.set_x2(s.c4Dash, bar_index)
     if not na(s.c3Ln)
         line.set_x2(s.c3Ln, bar_index)
@@ -2069,7 +2070,7 @@ method extendAndCheck(C2Setup s) =>
                 box.set_right(s.c3Box, bar_index + 1)
             if not na(s.c3Dash)
                 line.set_x2(s.c3Dash, bar_index + 1)
-        else if not s.c4Invalid
+        else if not s.c4Invalid and not s.c4Suppressed
             if not na(s.c4Box)
                 box.set_right(s.c4Box, bar_index + 1)
             if not na(s.c4Dash)
@@ -2122,7 +2123,7 @@ method extendAndCheck(C2Setup s) =>
 // that stops protected swings. The box goes away and the EQ line turns red and stops there. A close beyond
 // the C4 box / C3 EQ is not enough. C2 models only: a C3 model keeps its C4 box.
 method checkC4Invalid(C2Setup s) =>
-    if not na(s) and not s.dead and s.phase == 2 and not s.c3Model and not s.c4Invalid and not na(s.c3Extreme)
+    if not na(s) and not s.dead and s.phase == 2 and not s.c3Model and not s.c4Invalid and not s.c4Suppressed and not na(s.c3Extreme)
         invalid = s.isBull ? low < s.c3Extreme : high > s.c3Extreme
         if invalid
             s.c4Invalid := true
@@ -2139,6 +2140,20 @@ method checkC4Invalid(C2Setup s) =>
             box.delete(s.c4Box)
             s.c4Box := na
     s
+
+// A newer opposite model in its C3 owns this HTF candle: the older model's C4 box, EQ and C4 / XC4 label are not
+// drawn; its protected swings and continuation SMT go on
+suppressOverlappedC4(C2Setup older, C2Setup newer) =>
+    if not na(older) and not older.dead and not older.c3Model and older.phase == 2 and not older.c4Suppressed
+        if not na(newer) and not newer.dead and newer.revealed and newer.phase == 1
+            older.c4Suppressed := true
+            box.delete(older.c4Box)
+            older.c4Box := na
+            line.delete(older.c4Dash)
+            older.c4Dash := na
+            label.delete(older.c4Lbl)
+            older.c4Lbl := na
+    older
 
 method checkCisdConfirm(C2Setup s) =>
     if barstate.isconfirmed and not na(s) and not s.dead and not s.cisdConfirmed and s.phase != 0 and not na(s.cisdLevel) and not na(s.cisdIndex)
@@ -2449,6 +2464,9 @@ sellSetup := sellSetup.checkC4Invalid()
 
 buySetup  := buySetup.checkCisdConfirm()
 sellSetup := sellSetup.checkCisdConfirm()
+
+buySetup  := suppressOverlappedC4(buySetup, sellSetup)
+sellSetup := suppressOverlappedC4(sellSetup, buySetup)
 
 // check every persistent dot against the current bar BEFORE new dots can form on it
 icMarkTakenAll(htfOpenT)
