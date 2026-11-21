@@ -1354,12 +1354,18 @@ abLtfOf(simple string htf) =>
         '1M'  => '1D'
         '3M'  => '1W'
         =>       '1M'
+// Inverse of abLtfOf, evaluated inside request.security(..., abLtf, abDir()): passing abHtf as an
+// argument would re-evaluate autoTf in the abLtf context and shift the HTF up by 1-2 ladder steps.
+abHtfOf() =>
+    int s = timeframe.in_seconds()
+    s <= 60 ? '15' : s <= 300 ? '60' : s <= 900 ? '240' : s <= 3600 ? '1D' : s <= 14400 ? '1W' : s <= 86400 ? '1M' : s <= 604800 ? '3M' : '12M'
 
 // Direction of the higher model, run on its own entry timeframe: C2 closure (takes C1's high / low, closes back
 // inside) + CISD (close through the open of the run into the C2 extreme). It holds through C3 and C4 and ends
 // when C4 closes or a close goes beyond the C2 extreme (XC2). A newer model replaces an older one.
 // +1 bullish, -1 bearish, 0 none.
-abDir(simple string htf) =>
+abDir() =>
+    string htf = abHtfOf()
     // reads open / close up to ~1500 bars back below; one fixed deep read sizes this context's buffers up front
     float bufWarm = close[1499] + open[1499]
     var float c1H = na
@@ -1443,7 +1449,7 @@ string abLtf   = abLtfOf(abHtf)
 int    abBias  = 0
 // without a fractal only the Info Table's Bias row reads it
 if abSteps > 0 and (validTf or (tbl_show and tbl_bias))
-    abBias := request.security(ticker.modify(syminfo.tickerid, settlement_as_close = settlement_as_close.off), abLtf, abDir(abHtf)[1], lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = 5000)
+    abBias := request.security(ticker.modify(syminfo.tickerid, settlement_as_close = settlement_as_close.off), abLtf, abDir()[1], lookahead = barmerge.lookahead_on, ignore_invalid_symbol = true, calc_bars_count = 5000)
 // the bias the setups follow: Bullish / Bearish / Neutral
 string biasNow = abSteps == 0 ? biasFilter : abBias > 0 ? 'Bullish' : abBias < 0 ? 'Bearish' : 'Neutral'
 
