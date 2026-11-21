@@ -3184,14 +3184,12 @@ f_csStep(C2Setup s, bool isHigh, float own, int ownBar, float v1, float v2) =>
     bool ok = not na(own) and not f_beyond(isHigh, own, s.extreme) and own != s.extreme
     if not s.csDiv and not na(own) and not ok
         s.csTook := true
-    if not s.csDiv
-        if ok and not s.csTook and (f_beyond(isHigh, s.csRun1, s.c2P1) or f_beyond(isHigh, s.csRun2, s.c2P2))
-            s.csDiv    := true
-            s.csOwnPx  := own
-            s.csOwnBar := ownBar
-    else if ok and f_beyond(isHigh, own, s.csOwnPx)
+    // our own extreme since csStart (not only since the divergence bar): the line ends there, then slides on
+    if ok and (s.csDiv or not s.csTook) and (na(s.csOwnPx) or f_beyond(isHigh, own, s.csOwnPx))
         s.csOwnPx  := own
         s.csOwnBar := ownBar
+    if not s.csDiv and ok and not s.csTook and (f_beyond(isHigh, s.csRun1, s.c2P1) or f_beyond(isHigh, s.csRun2, s.c2P2))
+        s.csDiv := true
     s
 
 f_smtCont(C2Setup s) =>
