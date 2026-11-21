@@ -83,7 +83,7 @@ On the chart:
   - `Custom`: two symbols by hand, each with `Inverse?` (e.g. DXY).
 - **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price). The label names the pair.
 - **SMT colors:** two swatches on the `SMT Line` row: bullish SMT (blue) and bearish SMT (red), for the lines and pair names on the chart and on every HTF block.
-- **PSP:** C1 and / or C2 close a different color than the pair's same candle (`Candle 1 / Candle 2 / Both`).
+- **PSP:** C1 and / or C2 close a different color than the pair's same candle (`Candle 1 / Candle 2 / Both`). The pair's candles are cut at the chart's own HTF candle times, so a pair with another session (spot gold against gold futures, DXY against euro futures) is compared over the same hours.
 
 ## Time Filter (off by default)
 
