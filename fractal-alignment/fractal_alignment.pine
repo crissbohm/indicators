@@ -343,6 +343,8 @@ type C2Setup
     // [SMT] chart SMT lines of this setup (reversal at C2, continuations after the CISD)
     array<line>  smtLns  = na
     array<label> smtLbls = na
+    bool         smtGone = false   // a wick went beyond the C2 extreme (up to the end of C5): no SMT lines any more
+    int          smtHtf0 = na      // HTF candle count when the setup formed
     // [REVEAL] nothing is drawn until the CISD confirms; what to draw then
     bool   revealed = false
     bool   c3Model  = false
@@ -1810,6 +1812,9 @@ smtNames(bool d1, bool d2) =>
 
 int htfOpenT  = time(autoTf)
 periodChanged = htfOpenT != htfOpenT[1]
+var int htfNum = 0
+if periodChanged
+    htfNum += 1
 
 
 // T-Spot geometry at the current bar: between the previous HTF candle's EQ and this candle's open
@@ -1911,7 +1916,7 @@ method reveal(C2Setup s, bool onClose = false) =>
         if s.c3Model and showLabels and validTf and not na(s.c3LnBar) and not na(s.lblPx)
             s.c3Ln := line.new(xAnchor(s.c3LnBar), s.lblPx, bar_index + 1, s.lblPx, xloc = xloc.bar_index, color = sweepColor, style = line.style_dotted, width = 1)
         // [REVERSAL SMT] C2 took C1's high / low but a pair did not: line from the C1 extreme to the C2 extreme
-        if smtOnChart and s.smtHit and validTf and not na(s.c1Bar) and not na(s.c1Px)
+        if smtOnChart and s.smtHit and not s.smtGone and validTf and not na(s.c1Bar) and not na(s.c1Px)
             smtDrawOn(s, s.c1Bar, s.c1Px, s.c2BarIndex, s.extreme, not s.isBull, s.smtTxt)
         if not s.c3Model and not na(s.c3Start)
             [bx, dash, _] = drawPhaseAt(s.isBull, 3, s.c3Start, s.c3Top, s.c3Bot, s.c3Mid)
@@ -1955,6 +1960,7 @@ method reveal(C2Setup s, bool onClose = false) =>
 // starts in C4. Nothing is drawn until the CISD confirms (see reveal).
 newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, float c1Px, int c1Bar, int sweepEnd, float cisdLevel, int cisdIndex, bool cisdAlreadyConfirmed, int cisdConfirmBar, bool smtHit, string smtTxt, float fl1Px, int fl1Bar, float fl0Px, int fl0Bar) =>
     C2Setup s = C2Setup.new(isBull = isBull, extreme = extreme, phase = 1, dead = false, c2Lbl = na)
+    s.smtHtf0    := htfNum
     s.c3Model    := c3Model
     s.c2BarIndex := extremeBar
     s.tag        := tag
@@ -2917,13 +2923,18 @@ if barstate.islast and validTf and htfCandles.size() > 0 and not hideHtf
             c.sweepLine := na
 
     // [HTF SMT] divergence between consecutive HTF candles (i = newer, i + 1 = older), per pair. Strict: one
-    // makes the higher high, the other a lower high (equal is not SMT). Hidden once a newer HTF candle trades
-    // beyond it.
+    // makes the higher high, the other a lower high (equal is not SMT). Hidden once one of the next three HTF
+    // candles (C3 to C5) trades beyond it; a later candle does not hide it.
     bool  htfSmtOn = smtOnHtf and (pair1Name != '' or pair2Name != '')
-    float newerH   = na
-    float newerL   = na
     for i = 0 to n - 1
         HtfCandle cur  = htfCandles.get(i)
+        float newerH = na
+        float newerL = na
+        if i > 0
+            for k = math.max(0, i - 3) to i - 1
+                HtfCandle nc = htfCandles.get(k)
+                newerH := na(newerH) ? nc.h : math.max(newerH, nc.h)
+                newerL := na(newerL) ? nc.l : math.min(newerL, nc.l)
         HtfCandle prev = i < n - 1 ? htfCandles.get(i + 1) : na
         bool bear1 = false
         bool bull1 = false
@@ -2942,8 +2953,6 @@ if barstate.islast and validTf and htfCandles.size() > 0 and not hideHtf
             if not na(newerL) and newerL < cur.l
                 bull1 := false
                 bull2 := false
-        newerH := na(newerH) ? cur.h : math.max(newerH, cur.h)
-        newerL := na(newerL) ? cur.l : math.min(newerL, cur.l)
         int   x1 = na(prev) ? cur.midX : prev.midX
         float yH = na(prev) ? cur.h : prev.h
         float yL = na(prev) ? cur.l : prev.l
@@ -3220,7 +3229,7 @@ f_csStep(C2Setup s, bool isHigh, float own, int ownBar, float v1, float v2) =>
     s
 
 f_smtCont(C2Setup s) =>
-    if smt_on and not na(s) and not s.dead and s.phase != 0 and not na(s.c2BarIndex) and not na(s.extreme)
+    if smt_on and not na(s) and not s.dead and not s.smtGone and s.phase != 0 and not na(s.c2BarIndex) and not na(s.extreme)
         bool isHigh = not s.isBull
         int  start  = s.csStart
         if not na(start) and bar_index >= start
@@ -3259,6 +3268,28 @@ f_smtCont(C2Setup s) =>
                     if not na(s.csLb) and label.get_text(s.csLb) != txt
                         label.set_text(s.csLb, txt)
     s
+
+// The first wick beyond a setup's C2 extreme, from the setup until the end of C5 (C3 model: from C4), removes
+// all its SMT lines (reversal and continuation); the label stays unless the close goes through too (XC2).
+smtBreachCheck(C2Setup s) =>
+    if not na(s) and not s.smtGone and not na(s.smtHtf0) and not na(s.extreme) and htfNum - s.smtHtf0 < (s.c3Model ? 2 : 3)
+        if s.isBull ? low < s.extreme : high > s.extreme
+            s.smtGone := true
+            if not na(s.smtLns)
+                for ln in s.smtLns
+                    line.delete(ln)
+                for lb in s.smtLbls
+                    label.delete(lb)
+                s.smtLns.clear()
+                s.smtLbls.clear()
+            s.csLn := na
+            s.csLb := na
+
+if show_smt
+    for r in setupRecords
+        smtBreachCheck(r.setup)
+    smtBreachCheck(buySetup)
+    smtBreachCheck(sellSetup)
 
 f_smtCont(buySetup)
 f_smtCont(sellSetup)
