@@ -77,8 +77,8 @@ On the chart:
 ## Asset Correlation (SMT + PSP)
 
 - Two pairs, automatic, from the chart's own broker:
-  - Futures: NQ ↔ ES + YM, ES ↔ NQ + YM, YM ↔ ES + NQ, RTY ↔ YM, GC ↔ XAUEUR + XAUGBP, SI ↔ XAGEUR + XAGGBP, CL ↔ RB + HO, HO ↔ CL + RB, RB ↔ CL + HO, FDAX / FDXM ↔ FESX + Z (FTSE), FESX ↔ FDAX + Z, Z ↔ FDAX + FESX, 6E ↔ 6B + DXY (inverse), 6B ↔ 6E + DXY (inverse), 6A ↔ 6N + DXY (inverse), no automatic pair for 6J / 6S / 6C, BTC ↔ ETH (micros too). A dated contract (NQZ2026) pairs with the same contract (ESZ2026).
-  - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, GER40 / DE40 / GER30 ↔ UK100 + EU50 / EUSTX50 / STOXX50 / EURO50 (OANDA: DE30EUR ↔ UK100GBP + EU50EUR), XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD + DXY (inverse), GBPUSD ↔ EURUSD + DXY (inverse), AUDUSD ↔ NZDUSD + DXY (inverse), NZDUSD ↔ AUDUSD + DXY (inverse), USDJPY / USDCHF / USDCAD ↔ DXY (same direction), USOIL ↔ GASOLINEF + HEATINGOILF (FXCM).
+  - Futures: NQ ↔ ES + YM, ES ↔ NQ + YM, YM ↔ ES + NQ, RTY ↔ YM, GC ↔ XAUEUR + XAUGBP, SI ↔ XAGEUR + XAGGBP, CL ↔ RB + HO, HO ↔ CL + RB, RB ↔ CL + HO, FDAX / FDXM ↔ FESX + Z (FTSE), FESX ↔ FDAX + Z, Z ↔ FDAX + FESX, 6E ↔ 6B + DXY (inverse), 6B ↔ 6E + DXY (inverse), 6A ↔ 6N, no automatic pair for 6J / 6S / 6C, BTC ↔ ETH (micros too). A dated contract (NQZ2026) pairs with the same contract (ESZ2026).
+  - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, GER40 / DE40 / GER30 ↔ UK100 + EU50 / EUSTX50 / STOXX50 / EURO50 (OANDA: DE30EUR ↔ UK100GBP + EU50EUR), XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD + DXY (inverse), GBPUSD ↔ EURUSD + DXY (inverse), AUDUSD ↔ NZDUSD + DXY (inverse), NZDUSD ↔ AUDUSD + DXY (inverse), USDJPY / USDCHF / USDCAD ↔ DXY (same direction), GBPJPY ↔ EURJPY, USOIL ↔ GASOLINEF + HEATINGOILF (FXCM).
   - Crypto: BTCUSDT ↔ ETHUSDT (also `.P` perpetuals and BTCUSD ↔ ETHUSD).
   - `Custom`: two symbols by hand, each with `Inverse?` (e.g. DXY).
 - **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** during C3, after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price; C4 adds nothing). The label names the pair.
@@ -96,7 +96,7 @@ New setups only when the model is found inside a checked window (when C3 opens, 
  5m-1H Model
    00:24:13
 Bias: Neutral
-SMT (Auto): ES1!, YM1!
+SMT(Auto): ES1!, YM1!
   ADR 245.5 · 62%
 ```
 
