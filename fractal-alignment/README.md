@@ -71,7 +71,7 @@ On the chart:
 - **HTF Label + Remaining Time** above each block by default (`Bottom` or `Both` to change): the timeframe in bold, the time left in brackets under it, e.g. `1H` / `(12:40)`. On Fridays, the weekly (`1W`) countdown ends at Friday's day close on non-crypto symbols instead of Sunday's open.
 - **HTF Open** and **Previous EQ** on the chart, on the HTF candles, or both. **L/H Lines** (off by default). **Time Labels** under each candle (on by default): open time, the day name on daily, the week's Monday date on weekly (`NOV 2`), the month on monthly.
 - **Live sweep:** when the forming candle takes the previous candle's extreme and trades back inside.
-- **SMT** between consecutive HTF candles, including the forming one; hidden once a newer candle trades beyond it.
+- **SMT** between consecutive HTF candles, including the forming one; hidden once one of the next three candles trades beyond it.
 - **Hide Setups?** hides every model drawing and model alert; the HTF candles and their sweep / PSP lines stay.
 
 ## Asset Correlation (SMT + PSP)
@@ -81,7 +81,7 @@ On the chart:
   - CFD / forex: US100 ↔ US500 + US30, US500 ↔ US100 + US30, US30 ↔ US500 + US100, GER40 / DE40 / GER30 ↔ UK100 + EU50 / EUSTX50 / STOXX50 / EURO50 (OANDA: DE30EUR ↔ UK100GBP + EU50EUR), XAUUSD ↔ XAUEUR + XAUGBP, XAGUSD ↔ XAGEUR + XAGGBP, EURUSD ↔ GBPUSD + DXY (inverse), GBPUSD ↔ EURUSD + DXY (inverse), AUDUSD ↔ NZDUSD + DXY (inverse), NZDUSD ↔ AUDUSD + DXY (inverse), USDJPY / USDCHF / USDCAD ↔ DXY (same direction), GBPJPY ↔ EURJPY, USOIL ↔ GASOLINEF + HEATINGOILF (FXCM).
   - Crypto: BTCUSDT ↔ ETHUSDT (also `.P` perpetuals and BTCUSD ↔ ETHUSD).
   - `Custom`: two symbols by hand, each with `Inverse?` (e.g. DXY).
-- **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** during C3, after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price; C4 adds nothing). The label names the pair.
+- **SMT on the chart** belongs to a setup: **reversal** from the C1 extreme to the C2 extreme, and **continuation** during C3, after C2 closes (a pair goes beyond its own C2 extreme while price does not; the line's end follows price; C4 adds nothing). The label names the pair. A wick beyond the C2 extreme, up to the end of C5, removes the setup's SMT lines (the label stays).
 - **SMT colors:** two swatches on the `SMT Line` row: bullish SMT (blue) and bearish SMT (red), for the lines and pair names on the chart and on every HTF block.
 - **PSP:** C1 and / or C2 close a different color than the pair's same candle (`Candle 1 / Candle 2 / Both`). The pair's candles are cut at the chart's own HTF candle times, so a pair with another session (spot gold against gold futures, DXY against euro futures) is compared over the same hours.
 
