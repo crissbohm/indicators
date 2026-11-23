@@ -301,7 +301,7 @@ type ICCisd
     bool  frozen   = false
     int   swBar    = na
     int   liveHtf  = na   // open time of the HTF candle that was forming when its model stopped (C5 after C4, or the candle of a replacement / XC2); the dot freezes when that candle closes
-    int   formNum  = na   // HTF candle count when icMarkTakenAll first saw the dot; it can grey until the next HTF candle closes
+    int   formNum  = na   // HTF candle count when the dot printed (registerIcCisd); it can grey until the next HTF candle closes
     bool  noEarly  = false // its model's C4 was suppressed: only the liveHtf limit applies
 
 // One model (C2 closure or C3 closure). extreme / c2BarIndex = the C2 extreme (the swing) and its bar.
@@ -316,7 +316,6 @@ type C2Setup
     line  c1SweepLn     = na
     box   c3Box     = na
     line  c3Dash    = na
-    label c3Lbl     = na   // never created (only deleted in deleteSetupVisuals)
     float cisdLevel     = na
     int   cisdIndex     = na
     bool  cisdConfirmed = false
@@ -391,11 +390,10 @@ type C2Setup
     int    fl1Bar   = na
     float  fl0Px    = na
     int    fl0Bar   = na
-    // once a newer model of the same direction replaces it (flOld), its lines end at the bar that took them or
-    // where it formed (C3's open; C4's open for a C3 model), whichever comes first: fixed by flEndNow in newSetup
+    // once a newer revealed model of the same direction replaces it in history, its lines end at the bar that took
+    // them or where it formed (C3's open; C4's open for a C3 model), whichever comes first: fixed by flEndNow in newSetup
     int    fl1EndH  = na
     int    fl0EndH  = na
-    bool   flOld    = false
     // [EARLY C2] temporary setup while C2 is still forming (never enters setupRecords or icDots)
     bool   early    = false
 
@@ -1379,7 +1377,6 @@ deleteSetupVisuals(C2Setup s) =>
                 label.delete(lb)
         box.delete(s.c3Box)
         line.delete(s.c3Dash)
-        label.delete(s.c3Lbl)
         box.delete(s.c4Box)
         line.delete(s.c4Dash)
         label.delete(s.c4Lbl)
@@ -2119,9 +2116,6 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
                 bot := oBot
         if htfCandles.size() > 1
             s.smtC2 := htfCandles.get(1)
-        // the forming candle is this model's C3 (advanceToC4 sets the same candle again)
-        if htfCandles.size() > 0
-            s.smtC3 := htfCandles.first()
         s.c3Start := bar_index
         s.c3Top   := top
         s.c3Bot   := bot
@@ -2307,14 +2301,15 @@ method checkCisdConfirm(C2Setup s) =>
     s
 
 // Called every bar for each direction; returns the current model of that direction. On a trigger: the old one
-// stops (icFreeze, flOld) and a new model replaces it. Otherwise, on each new HTF candle: C3 -> C4 -> finished.
+// stops (icFreeze) and a new model replaces it. Otherwise, on each new HTF candle: C3 -> C4 -> finished.
 processSetup(C2Setup existing, bool trigger, bool isBull, bool c3Model, float extreme, int extremeBar, string tag, float c1Px, int c1Bar, int sweepEnd, float cisdLevel, int cisdIndex, bool cisdDone, int cisdBar, bool smtHit, string smtTxt, float fl1Px, int fl1Bar, float fl0Px, int fl0Bar) =>
     C2Setup result = existing
     if trigger
         if not na(existing) and not existing.dead and existing.phase != 0
             icFreeze(existing)
-        if not na(existing)
-            existing.flOld := true
+            if existing.c3Model and existing.phase == 2 and not na(existing.icList)
+                for ic in existing.icList
+                    ic.frozen := true
         result := newSetup(isBull, c3Model, extreme, extremeBar, tag, c1Px, c1Bar, sweepEnd, cisdLevel, cisdIndex, cisdDone, cisdBar, smtHit, smtTxt, fl1Px, fl1Bar, fl0Px, fl0Bar)
     else if periodChanged and not na(existing) and not existing.dead
         result := existing.phase == 1 ? existing.advanceToC4() : existing.phase == 2 ? existing.finish() : existing
@@ -2741,8 +2736,8 @@ if showVlines and validTf and periodChanged and calcOn
 // [FORMATION LIQUIDITY] the target side of the C1 candle and of the candle before it (bullish:
 // their highs, bearish: their lows). A line starts where that high / low printed and ends at the bar
 // that trades through it; an untaken one runs to the last bar. Levels already taken before the swing
-// are not targets. Redrawn on the last bar: the current bull / bear model live (flDraw), older models in the
-// history with the end fixed when they formed (flLineOld).
+// are not targets. Redrawn on the last bar: the latest revealed live bull / bear model in history live (flDraw),
+// older revealed live models in history with the end fixed when they formed (flLineOld).
 var array<line> flLines = array.new<line>()
 // Loops read these up to ~1500 bars back; reserving the history up front keeps a realtime bar
 // from asking for more than the buffer chosen on historical bars (runtime error on candle close).
@@ -2782,14 +2777,28 @@ if barstate.islast
     for ln in flLines
         line.delete(ln)
     flLines.clear()
-    if showFl and validTf
-        flDraw(buySetup)
-        flDraw(sellSetup)
-        for r in setupRecords
-            C2Setup o = r.setup
-            if o.flOld and o.revealed and not o.dead
-                flLineOld(o.fl1Px, o.fl1Bar, o.fl1EndH, o.c2BarIndex)
-                flLineOld(o.fl0Px, o.fl0Bar, o.fl0EndH, o.c2BarIndex)
+    if showFl and validTf and setupRecords.size() > 0
+        int liveBullIdx = na
+        int liveBearIdx = na
+        for i = setupRecords.size() - 1 to 0
+            C2Setup o = setupRecords.get(i).setup
+            if o.revealed and not o.dead
+                if o.isBull and na(liveBullIdx)
+                    liveBullIdx := i
+                else if not o.isBull and na(liveBearIdx)
+                    liveBearIdx := i
+            if not na(liveBullIdx) and not na(liveBearIdx)
+                break
+        if not na(liveBullIdx)
+            flDraw(setupRecords.get(liveBullIdx).setup)
+        if not na(liveBearIdx)
+            flDraw(setupRecords.get(liveBearIdx).setup)
+        for i = 0 to setupRecords.size() - 1
+            if (na(liveBullIdx) or i != liveBullIdx) and (na(liveBearIdx) or i != liveBearIdx)
+                C2Setup o = setupRecords.get(i).setup
+                if o.revealed and not o.dead
+                    flLineOld(o.fl1Px, o.fl1Bar, o.fl1EndH, o.c2BarIndex)
+                    flLineOld(o.fl0Px, o.fl0Bar, o.fl0EndH, o.c2BarIndex)
 
 // [L/H LINES] each HTF candle's high and low on the chart, over that candle's own period
 var array<line> lhHi = array.new<line>()
@@ -3131,18 +3140,20 @@ if barstate.islast and validTf and htfCandles.size() > 0 and not hideHtf
             HtfCandle nextC = i > 0 ? htfCandles.get(i - 1) : na
             bool nextC3Bear = not na(nextC) and nextC.c3BearClosed
             bool nextC3Bull = not na(nextC) and nextC.c3BullClosed
-            bool bearOk = i == 0 or (i == 1 ? (cur.c2BearClosed or cur.c3BearClosed or prev.c2BearClosed) : (cur.c2BearClosed or nextC3Bear))
-            bool bullOk = i == 0 or (i == 1 ? (cur.c2BullClosed or cur.c3BullClosed or prev.c2BullClosed) : (cur.c2BullClosed or nextC3Bull))
-            if bearOk and not cur.smtBearDead
+            bool bearRev  = i == 0 or (i == 1 ? (cur.c2BearClosed or cur.c3BearClosed) : (cur.c2BearClosed or nextC3Bear))
+            bool bearCont = i == 1 and prev.c2BearClosed and not cur.c2BearClosed and not cur.c3BearClosed
+            bool bullRev  = i == 0 or (i == 1 ? (cur.c2BullClosed or cur.c3BullClosed) : (cur.c2BullClosed or nextC3Bull))
+            bool bullCont = i == 1 and prev.c2BullClosed and not cur.c2BullClosed and not cur.c3BullClosed
+            if (bearRev or bearCont) and not cur.smtBearDead
                 if not na(cur.pH) and not na(prev.pH)
-                    bear1 := (cur.h > prev.h and cur.pH < prev.pH) or (cur.h < prev.h and cur.pH > prev.pH)
+                    bear1 := (cur.h < prev.h and cur.pH > prev.pH) or (bearRev and cur.h > prev.h and cur.pH < prev.pH)
                 if not na(cur.qH) and not na(prev.qH)
-                    bear2 := (cur.h > prev.h and cur.qH < prev.qH) or (cur.h < prev.h and cur.qH > prev.qH)
-            if bullOk and not cur.smtBullDead
+                    bear2 := (cur.h < prev.h and cur.qH > prev.qH) or (bearRev and cur.h > prev.h and cur.qH < prev.qH)
+            if (bullRev or bullCont) and not cur.smtBullDead
                 if not na(cur.pL) and not na(prev.pL)
-                    bull1 := (cur.l < prev.l and cur.pL > prev.pL) or (cur.l > prev.l and cur.pL < prev.pL)
+                    bull1 := (cur.l > prev.l and cur.pL < prev.pL) or (bullRev and cur.l < prev.l and cur.pL > prev.pL)
                 if not na(cur.qL) and not na(prev.qL)
-                    bull2 := (cur.l < prev.l and cur.qL > prev.qL) or (cur.l > prev.l and cur.qL < prev.qL)
+                    bull2 := (cur.l > prev.l and cur.qL < prev.qL) or (bullRev and cur.l < prev.l and cur.qL > prev.qL)
             if i > 0 and (bear1 or bear2 or bull1 or bull2)
                 float newerH = na
                 float newerL = na
@@ -3469,10 +3480,11 @@ f_smtCont(C2Setup s) =>
                     s.csLn := s.smtLns.last()
                     s.csLb := txt != '' and s.smtLbls.size() > 0 ? s.smtLbls.last() : na
                 else if smtOnChart
-                    if line.get_x2(s.csLn) != s.csOwnBar or line.get_y2(s.csLn) != s.csOwnPx
-                        line.set_xy2(s.csLn, s.csOwnBar, s.csOwnPx)
+                    int ax2 = xAnchor(s.csOwnBar)
+                    if line.get_x2(s.csLn) != ax2 or line.get_y2(s.csLn) != s.csOwnPx
+                        line.set_xy2(s.csLn, ax2, s.csOwnPx)
                         if not na(s.csLb)
-                            label.set_xy(s.csLb, int(math.round((s.c2BarIndex + s.csOwnBar) / 2.0)), (s.extreme + s.csOwnPx) / 2)
+                            label.set_xy(s.csLb, int(math.round((xAnchor(s.c2BarIndex) + ax2) / 2.0)), (s.extreme + s.csOwnPx) / 2)
                     if not na(s.csLb) and label.get_text(s.csLb) != txt
                         label.set_text(s.csLb, txt)
     s
