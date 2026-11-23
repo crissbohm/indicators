@@ -59,7 +59,7 @@ On the chart:
 - **T-Spot (C3 / C4):** between the previous HTF candle's equilibrium (EQ) and the current candle's open, growing bar by bar, with the EQ as a dotted line. When C2 closed against the setup or on the wrong side of its own middle, the EQ is the middle of C2's close and its wick extreme. The C3 box keeps only the part that overlaps the CISD zone (the CISD level to the middle of the bodies of the run that made it), when they overlap. `C4` at the start of the C4 box.
 - **CISD line:** ends one candle after the close through the level. **Early C2 CISD** (off by default): a CISD before C2 closes, dotted; when enabled, the forming C2's reversal SMT and protected swings (in the Early CISD line style) are also shown until C2 closes.
 - **Candle 1 Sweep:** from the C1 extreme that C2 took to the end of C2.
-- **Protected Swings:** continuations after the CISD. The swing must reach a point of interest (a fair value gap in the setup's direction, or an untaken swing it sweeps), then price closes through the opposite candles that led into it. A dot on the swing and a short line at the level; the dot turns gray once price takes the swing back.
+- **Protected Swings:** continuations after the CISD. The swing must reach a point of interest (a fair value gap in the setup's direction, or an untaken swing it sweeps), then price closes through the opposite candles that led into it. A dot on the swing and a short line at the level; the dot turns gray once price takes the swing back, during the HTF candle it printed in and the next one (C2 model: a C3 dot until the end of C4, a C4 dot until the end of C5; C3 model: every dot until the end of C4). After that its color stays.
 - **Formation Liquidity:** the model's targets, the high (bullish) or low (bearish) of C1 and of the candle before it. A line ends at the bar that takes it.
 - **SD projections** (off by default): multiples of the CISD ↔ C2 extreme range.
 - **XC2:** price closes beyond the C2 extreme (red in C3, orange later; the model's SMT goes with it). **XC4:** C2 models only; during C4 price trades through C3's opposite extreme. **XC Labels** (on the Show Labels? row, on by default): turn it off and a failed model leaves no XC2 / XC3 / XC4 label; everything else stays.
@@ -71,7 +71,7 @@ On the chart:
 - **HTF Label + Remaining Time** above each block by default (`Bottom` or `Both` to change): the timeframe in bold, the time left in brackets under it, e.g. `1H` / `(12:40)`. On Fridays, the weekly (`1W`) countdown ends at Friday's day close on non-crypto symbols instead of Sunday's open.
 - **HTF Open** and **Previous EQ** on the chart, on the HTF candles, or both. **L/H Lines** (off by default). **Time Labels** under each candle (on by default): open time, the day name on daily, the week's Monday date on weekly (`NOV 2`), the month on monthly.
 - **Live sweep:** when the forming candle takes the previous candle's extreme and trades back inside.
-- **SMT** between consecutive HTF candles, including the forming one; hidden once one of the next three candles trades beyond it.
+- **SMT** between consecutive HTF candles, only on the model's candles: the forming one (live), a candle that closed as C2 (C1 to C2), the candle after a C2 (C2 to C3) and the C3 of a C3 closure. Gone once C4 closes, once a newer candle trades beyond the C2 extreme, or when the model's XC2 / XC4 / C2 wick breach removes its chart SMT. On HTF 1 / HTF 2 (no model there) it stays until a newer candle trades beyond it.
 - **Hide Setups?** hides every model drawing and model alert; the HTF candles and their sweep / PSP lines stay.
 
 ## Asset Correlation (SMT + PSP)
@@ -115,9 +115,9 @@ One column; each row can be turned off. **ADR · CDR %** is on by default, the d
 - **Warnings** (on by default; nothing shows while all is fine): a short message when the chart timeframe does not fit the fractal or a pair has no data.
 - **Calculated bars** (2000, TradingView's own setting): the first fifth (at most 500) warms up the HTF candles; the model runs on the rest. Lower it for speed, raise it to see further back.
 
-## Colors and dark theme
+## Colors
 
-One soft gray palette (TradingView's own grays) with blue / red for bullish / bearish. On a dark chart background, colors left at their default (bear body, borders, wicks, C1 sweep, block titles, C labels, table background) switch to light tones automatically; a color you pick yourself is kept.
+White / black HTF candles with black borders and wicks, TradingView's own grays elsewhere, blue / red for bullish / bearish. One color set for light and dark charts: change any color in the settings.
 
 ## Concepts
 

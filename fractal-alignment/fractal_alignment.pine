@@ -36,11 +36,11 @@ showX2         = input.bool(false, 'HTF 2', group = grpCandles, inline = 'xhtf2'
 x2Sel          = input.string('Auto', '', options = ['Auto', '15m', '30m', '1H', '90m', '4H', '6H', '7H', 'D', 'W', 'M'], group = grpCandles, inline = 'xhtf2', active = showX2, tooltip = 'Extra HTF candles to the right of the model HTF candles, with its title (HTF Label / Remaining Time) above and / or below each block.\n\nAuto: HTF 1 = one step above the model HTF, HTF 2 = one step above HTF 1 (1m-15m: 1H / 4H, 5m-1H: 4H / D, 15m-4H: D / W, 1H-1D: W / M). 90m, 6H and 7H are never picked by Auto.\n\nNo model runs on them; they show Previous EQ, Candle 1 Sweep, SMT and PSP like the model block (HTF Open only on the model block), with the same settings. The number next to each: how many candles that block shows (1 to 10).')
 candleOffsetIn = input.int(0, 'Offset', minval = 0, maxval = 100, group = grpCandles, tooltip = 'Extra empty bars between the last chart candle and the HTF candles.')
 bullBody       = input.color(color.rgb(255, 255, 255), 'Body', group = grpCandles, inline = 'body')
-bearBodyIn     = input.color(#131722, '', group = grpCandles, inline = 'body')
-borderBullIn   = input.color(#2a2e39, 'Border', group = grpCandles, inline = 'border')
-borderBearIn   = input.color(#2a2e39, '', group = grpCandles, inline = 'border')
-wickBullIn     = input.color(#2a2e39, 'Wick', group = grpCandles, inline = 'wick')
-wickBearIn     = input.color(#2a2e39, '', group = grpCandles, inline = 'wick', tooltip = 'Body, Border, Wick: left bullish, right bearish.')
+bearBodyIn     = input.color(#000000, '', group = grpCandles, inline = 'body')
+borderBullIn   = input.color(#000000, 'Border', group = grpCandles, inline = 'border')
+borderBearIn   = input.color(#000000, '', group = grpCandles, inline = 'border')
+wickBullIn     = input.color(#000000, 'Wick', group = grpCandles, inline = 'wick')
+wickBearIn     = input.color(#000000, '', group = grpCandles, inline = 'wick', tooltip = 'Body, Border, Wick: left bullish, right bearish.')
 
 htfOpenColor = input.color(color.new(#787b86, 20), '', group = grpCandles, inline = 'htfopen')
 showHtfOpen  = input.bool(true, 'HTF Open', group = grpCandles, inline = 'htfopen')
@@ -201,20 +201,16 @@ showXcLbl      = input.bool(true, 'XC Labels', group = grpVisuals, inline = 'lbl
 
 noColor           = color.new(#000000, 100)
 
-// Dark chart background: colors still at their default (light-theme) value switch to a light equivalent
-isDarkChart = color.r(chart.bg_color) + color.g(chart.bg_color) + color.b(chart.bg_color) < 382
-themed(color c, color lightDef, color darkAlt) =>
-    isDarkChart and c == lightDef ? darkAlt : c
-bearBody      = themed(bearBodyIn, #131722, #5d606b)
-borderBull    = themed(borderBullIn, #2a2e39, #b2b5be)
-borderBear    = themed(borderBearIn, #2a2e39, #b2b5be)
-wickBull      = themed(wickBullIn, #2a2e39, #b2b5be)
-wickBear      = themed(wickBearIn, #2a2e39, #b2b5be)
-sweepColor    = themed(sweepColorIn, #000000, #b2b5be)
-tbl_bg_color  = themed(tbl_bg_colorIn, #ffffff, #1e222d)
-htfNameColor  = isDarkChart ? #d1d4dc : htfNameColorL
-c2c3c4Color   = isDarkChart ? #d1d4dc : c2c3c4ColorL
-tblHeadColor  = tbl_text_color == #787b86 ? (isDarkChart ? #d1d4dc : #2a2e39) : tbl_text_color
+bearBody      = bearBodyIn
+borderBull    = borderBullIn
+borderBear    = borderBearIn
+wickBull      = wickBullIn
+wickBear      = wickBearIn
+sweepColor    = sweepColorIn
+tbl_bg_color  = tbl_bg_colorIn
+htfNameColor  = htfNameColorL
+c2c3c4Color   = c2c3c4ColorL
+tblHeadColor  = tbl_text_color == #787b86 ? #2a2e39 : tbl_text_color
 takenColor    = #b2b5be   // protected swing dot after it is taken
 icBackfillMaxBars = 300
 icCisdDotSize     = 'Small'
@@ -265,6 +261,14 @@ type HtfCandle
     label pspLbl      = na
     line  smtHLine    = na
     line  smtLLine    = na
+    // role of this candle once it closed (from the raw triggers, so Hide Setups / History do not change it)
+    // and whether its model's XC2 / XC4 / C2 wick breach removed the block line ending on it
+    bool  c2BearClosed = false
+    bool  c2BullClosed = false
+    bool  c3BearClosed = false
+    bool  c3BullClosed = false
+    bool  smtBearDead  = false
+    bool  smtBullDead  = false
     // [LIVE SWEEP] lines on this candle's high / low while the next (forming) candle trades through them
     line  liveHiLn    = na
     line  liveLoLn    = na
@@ -288,6 +292,8 @@ type ICCisd
     bool  frozen   = false
     int   swBar    = na
     int   liveHtf  = na   // open time of the HTF candle after C4 (C5); the dot freezes when it closes
+    int   formNum  = na   // HTF candle count when the dot printed; it can grey until the next HTF candle closes
+    bool  noEarly  = false // its model's C4 was suppressed: only the C5 limit (liveHtf) applies
 
 type C2Setup
     bool  isBull
@@ -346,6 +352,8 @@ type C2Setup
     bool         smtGone = false   // a wick went beyond the C2 extreme (up to the end of C5): no SMT lines any more
     int          smtHtf0 = na      // HTF candle count when the setup formed
     int          endBar  = na      // bar on which C4 closed (the model finished)
+    HtfCandle    smtC2   = na      // its C2 / C3 candles in the HTF block (their block SMT lines go with the model)
+    HtfCandle    smtC3   = na
     // [REVEAL] nothing is drawn until the CISD confirms; what to draw then
     bool   revealed = false
     bool   c3Model  = false
@@ -1149,13 +1157,18 @@ registerIcCisd(C2Setup s, float swPx, int swIdx, int brokeBar) =>
         icDots.push(ic)
     c4LabelDodge(s)
 
-// Greys a dot when price wicks beyond its extreme. A grey dot stays on the chart until its
-// setup leaves the history; it needs no more watching, so it leaves this list.
-icMarkTakenAll(int htfOpenT) =>
+// Greys a dot when price wicks beyond its extreme. A dot can grey during the HTF candle it printed in and the
+// next one (a dot printed in C3 keeps its color from C5 on), never after C5. A grey dot stays on the chart until
+// its setup leaves the history; it needs no more watching, so it leaves this list.
+icMarkTakenAll(int htfOpenT, int hNum) =>
     if icDots.size() > 0
         for i = icDots.size() - 1 to 0
             ic = icDots.get(i)
+            if na(ic.formNum)
+                ic.formNum := hNum
             if not ic.frozen and not na(ic.liveHtf) and htfOpenT != ic.liveHtf
+                ic.frozen := true
+            if not ic.frozen and not ic.noEarly and hNum > ic.formNum + 1
                 ic.frozen := true
             if not ic.taken and not ic.frozen and not na(ic.extremePrice)
                 bool sweep = ic.isBull ? low < ic.extremePrice : high > ic.extremePrice
@@ -1852,8 +1865,24 @@ smtDrawOn(C2Setup s, int x1, float y1, int x2, float y2, bool isHigh, string txt
     if txt != ''
         s.smtLbls.push(label.new(int(math.round((ax1 + ax2) / 2.0)), (y1 + y2) / 2, txt, xloc = xloc.bar_index, yloc = yloc.price, style = isHigh ? label.style_label_down : label.style_label_up, color = na, textcolor = smtColorFor(isHigh), size = textSize(smtLblSize), text_font_family = font.family_default))
 
+// [HTF SMT] the model's block lines (ending on its C2 / C3 candle) go with it, only while it is in C3 / C4
+// (later its candles have left the model part of the block anyway)
+htfSmtKill(C2Setup s) =>
+    if not na(s) and not na(s.smtHtf0) and htfNum - s.smtHtf0 < (s.c3Model ? 1 : 2)
+        if not na(s.smtC2)
+            if s.isBull
+                s.smtC2.smtBullDead := true
+            else
+                s.smtC2.smtBearDead := true
+        if not na(s.smtC3)
+            if s.isBull
+                s.smtC3.smtBullDead := true
+            else
+                s.smtC3.smtBearDead := true
+
 // [SMT] removes all SMT lines of a setup for good (reversal and continuation); the model label stays
 smtClear(C2Setup s) =>
+    htfSmtKill(s)
     s.smtGone := true
     if not na(s.smtLns)
         for ln in s.smtLns
@@ -2003,6 +2032,9 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
             s.lblPx     := s.c3Extreme
             s.lblBar    := na(sweepEnd) ? na : int(math.round((sweepEnd + bar_index - 1) / 2.0))
             s.c3LnBar   := isBull ? htfCandles.get(1).lBar : htfCandles.get(1).hBar
+            s.smtC3     := htfCandles.get(1)
+        if htfCandles.size() > 2
+            s.smtC2 := htfCandles.get(2)
         s.phase    := 2
         s.c3Start  := sweepEnd
         s.c4Start  := bar_index
@@ -2021,6 +2053,8 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
             if oTop >= oBot
                 top := oTop
                 bot := oBot
+        if htfCandles.size() > 1
+            s.smtC2 := htfCandles.get(1)
         s.c3Start := bar_index
         s.c3Top   := top
         s.c3Bot   := bot
@@ -2034,6 +2068,7 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
 method advanceToC4(C2Setup s) =>
     if htfCandles.size() > 1
         c3 = htfCandles.get(1)
+        s.smtC3     := c3
         s.c3Extreme := s.isBull ? c3.l : c3.h
         s.c3Hi      := c3.h
         s.c3Lo      := c3.l
@@ -2066,6 +2101,10 @@ icFreeze(C2Setup s) =>
 
 method finish(C2Setup s) =>
     icFreeze(s)
+    // a C3 model's dots keep their color from C5 on
+    if s.c3Model and not na(s.icList)
+        for ic in s.icList
+            ic.frozen := true
     if not na(s.c4Box)
         box.set_right(s.c4Box, bar_index)
     if not na(s.c4Dash) and not s.c4Invalid and not s.c4Suppressed
@@ -2136,6 +2175,7 @@ method extendAndCheck(C2Setup s) =>
             s.csLn := na
             s.csLb := na
             s.deleteStdDev()
+            htfSmtKill(s)
             icFreeze(s)
             icClearPending(s)
             s.icStopped := true
@@ -2179,6 +2219,9 @@ suppressOverlappedC4(C2Setup older, C2Setup newer) =>
             older.c4Dash := na
             label.delete(older.c4Lbl)
             older.c4Lbl := na
+            if not na(older.icList)
+                for ic in older.icList
+                    ic.noEarly := true
     older
 
 method checkCisdConfirm(C2Setup s) =>
@@ -2396,6 +2439,14 @@ if periodChanged and htfCandles.size() > 3
     c3BuyTrigger  := k2.l < k1.l and k2.c <= k1.l and k3.l >= k2.l and k3.c > math.max(k2.o, k2.c)
     c3SellTrigger := k2.h > k1.h and k2.c >= k1.h and k3.h <= k2.h and k3.c < math.min(k2.o, k2.c)
 
+// [HTF SMT] the candle that just closed: was it a C2 or the C3 of a C3 closure (block SMT lines follow these roles)
+if periodChanged and htfCandles.size() > 1
+    HtfCandle closedC = htfCandles.get(1)
+    closedC.c2BullClosed := state.prevC2Buy
+    closedC.c2BearClosed := state.prevC2Sell
+    closedC.c3BullClosed := c3BuyTrigger
+    closedC.c3BearClosed := c3SellTrigger
+
 // the C2 / C3 checkboxes choose the model types (C4 = the C4 continuation)
 bool c2BuyGo  = c2BuyTrigger and buyOk and showC2
 bool c2SellGo = c2SellTrigger and sellOk and showC2
@@ -2506,7 +2557,7 @@ if printBar.get(0) == bar_index or printBar.get(1) == bar_index
                 smtClear(o)
 
 // check every persistent dot against the current bar BEFORE new dots can form on it
-icMarkTakenAll(htfOpenT)
+icMarkTakenAll(htfOpenT, htfNum)
 
 buySetup  := buySetup.updateIc()
 sellSetup := sellSetup.updateIc()
@@ -2955,36 +3006,52 @@ if barstate.islast and validTf and htfCandles.size() > 0 and not hideHtf
             c.sweepLine := na
 
     // [HTF SMT] divergence between consecutive HTF candles (i = newer, i + 1 = older), per pair. Strict: one
-    // makes the higher high, the other a lower high (equal is not SMT). Hidden once one of the next three HTF
-    // candles (C3 to C5) trades beyond it; a later candle does not hide it.
+    // makes the higher high, the other a lower high (equal is not SMT). Only the model part of the block:
+    //   i = 0: the forming candle (live)
+    //   i = 1: ends on a closed C2, on the C3 of a C3 closure, or on the C3 after a C2 (continuation)
+    //   i = 2: ends on a C2 (C2 model in C4, or the C2 of a C3 closure in C4)
+    // Later (C5 on) it is gone. Hidden once a newer candle trades beyond the C2 extreme, or when its model's
+    // XC2 / XC4 / C2 wick breach removed its chart SMT.
     bool  htfSmtOn = smtOnHtf and (pair1Name != '' or pair2Name != '')
     for i = 0 to n - 1
         HtfCandle cur  = htfCandles.get(i)
-        float newerH = na
-        float newerL = na
-        if i > 0
-            for k = math.max(0, i - 3) to i - 1
-                HtfCandle nc = htfCandles.get(k)
-                newerH := na(newerH) ? nc.h : math.max(newerH, nc.h)
-                newerL := na(newerL) ? nc.l : math.min(newerL, nc.l)
         HtfCandle prev = i < n - 1 ? htfCandles.get(i + 1) : na
         bool bear1 = false
         bool bull1 = false
         bool bear2 = false
         bool bull2 = false
-        if htfSmtOn and not na(prev)
-            if not na(cur.pH) and not na(prev.pH)
-                bear1 := (cur.h > prev.h and cur.pH < prev.pH) or (cur.h < prev.h and cur.pH > prev.pH)
-                bull1 := (cur.l < prev.l and cur.pL > prev.pL) or (cur.l > prev.l and cur.pL < prev.pL)
-            if not na(cur.qH) and not na(prev.qH)
-                bear2 := (cur.h > prev.h and cur.qH < prev.qH) or (cur.h < prev.h and cur.qH > prev.qH)
-                bull2 := (cur.l < prev.l and cur.qL > prev.qL) or (cur.l > prev.l and cur.qL < prev.qL)
-            if not na(newerH) and newerH > cur.h
-                bear1 := false
-                bear2 := false
-            if not na(newerL) and newerL < cur.l
-                bull1 := false
-                bull2 := false
+        if htfSmtOn and not na(prev) and i <= 2
+            HtfCandle nextC = i > 0 ? htfCandles.get(i - 1) : na
+            bool nextC3Bear = not na(nextC) and nextC.c3BearClosed
+            bool nextC3Bull = not na(nextC) and nextC.c3BullClosed
+            bool bearOk = i == 0 or (i == 1 ? (cur.c2BearClosed or cur.c3BearClosed or prev.c2BearClosed) : (cur.c2BearClosed or nextC3Bear))
+            bool bullOk = i == 0 or (i == 1 ? (cur.c2BullClosed or cur.c3BullClosed or prev.c2BullClosed) : (cur.c2BullClosed or nextC3Bull))
+            if bearOk and not cur.smtBearDead
+                if not na(cur.pH) and not na(prev.pH)
+                    bear1 := (cur.h > prev.h and cur.pH < prev.pH) or (cur.h < prev.h and cur.pH > prev.pH)
+                if not na(cur.qH) and not na(prev.qH)
+                    bear2 := (cur.h > prev.h and cur.qH < prev.qH) or (cur.h < prev.h and cur.qH > prev.qH)
+            if bullOk and not cur.smtBullDead
+                if not na(cur.pL) and not na(prev.pL)
+                    bull1 := (cur.l < prev.l and cur.pL > prev.pL) or (cur.l > prev.l and cur.pL < prev.pL)
+                if not na(cur.qL) and not na(prev.qL)
+                    bull2 := (cur.l < prev.l and cur.qL > prev.qL) or (cur.l > prev.l and cur.qL < prev.qL)
+            if i > 0 and (bear1 or bear2 or bull1 or bull2)
+                float newerH = na
+                float newerL = na
+                for k = 0 to i - 1
+                    HtfCandle nc = htfCandles.get(k)
+                    newerH := na(newerH) ? nc.h : math.max(newerH, nc.h)
+                    newerL := na(newerL) ? nc.l : math.min(newerL, nc.l)
+                // the C2 extreme: this candle when it is the C2, else the older one (continuation)
+                float c2RefH = cur.c2BearClosed or nextC3Bear ? cur.h : prev.h
+                float c2RefL = cur.c2BullClosed or nextC3Bull ? cur.l : prev.l
+                if newerH > c2RefH
+                    bear1 := false
+                    bear2 := false
+                if newerL < c2RefL
+                    bull1 := false
+                    bull2 := false
         int   x1 = na(prev) ? cur.midX : prev.midX
         float yH = na(prev) ? cur.h : prev.h
         float yL = na(prev) ? cur.l : prev.l
