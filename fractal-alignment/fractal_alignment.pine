@@ -380,6 +380,11 @@ type C2Setup
     int    fl1Bar   = na
     float  fl0Px    = na
     int    fl0Bar   = na
+    // once a newer model of the same direction replaces it, its lines end at the bar that took them or at
+    // its own C2 close (C3 close for a C3 model), whichever comes first
+    int    fl1EndH  = na
+    int    fl0EndH  = na
+    bool   flOld    = false
     // [EARLY C2] temporary setup while C2 is still forming (never enters setupRecords or icDots)
     bool   early    = false
 
@@ -2003,6 +2008,17 @@ method reveal(C2Setup s, bool onClose = false) =>
                 alert(msg, alert.freq_once_per_bar)
     s
 
+// [FORMATION LIQUIDITY] first bar from the level's own bar up to now that trades through it (now if none)
+flEndNow(float px, int b, bool isBull) =>
+    int endB = bar_index
+    if not na(px) and not na(b) and b < bar_index
+        int maxBack = math.min(bar_index - b, 1500)
+        for off = maxBack - 1 to 0
+            if isBull ? high[off] > px : low[off] < px
+                endB := bar_index - off
+                break
+    endB
+
 // A new model. C2 model: created when C3 opens. C3 model (C3 closure): created when C4 opens, so it
 // starts in C4. Nothing is drawn until the CISD confirms (see reveal).
 newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, float c1Px, int c1Bar, int sweepEnd, float cisdLevel, int cisdIndex, bool cisdAlreadyConfirmed, int cisdConfirmBar, bool smtHit, string smtTxt, float fl1Px, int fl1Bar, float fl0Px, int fl0Bar) =>
@@ -2020,6 +2036,8 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
     s.fl1Bar     := fl1Bar
     s.fl0Px      := fl0Px
     s.fl0Bar     := fl0Bar
+    s.fl1EndH    := flEndNow(fl1Px, fl1Bar, isBull)
+    s.fl0EndH    := flEndNow(fl0Px, fl0Bar, isBull)
     s.cisdLevel  := cisdLevel
     s.cisdIndex  := cisdIndex
     [top, bot, mid] = phaseGeom(isBull, not c3Model)
@@ -2238,6 +2256,8 @@ processSetup(C2Setup existing, bool trigger, bool isBull, bool c3Model, float ex
     if trigger
         if not na(existing) and not existing.dead and existing.phase != 0
             icFreeze(existing)
+        if not na(existing)
+            existing.flOld := true
         result := newSetup(isBull, c3Model, extreme, extremeBar, tag, c1Px, c1Bar, sweepEnd, cisdLevel, cisdIndex, cisdDone, cisdBar, smtHit, smtTxt, fl1Px, fl1Bar, fl0Px, fl0Bar)
     else if periodChanged and not na(existing) and not existing.dead
         result := existing.phase == 1 ? existing.advanceToC4() : existing.phase == 2 ? existing.finish() : existing
@@ -2679,6 +2699,11 @@ flDraw(C2Setup s) =>
         flLine(s.fl1Px, s.fl1Bar, s.isBull, s.c2BarIndex)
         flLine(s.fl0Px, s.fl0Bar, s.isBull, s.c2BarIndex)
 
+// an older model in the history: its end was fixed when it formed
+flLineOld(float px, int b, int endB, int swingBar) =>
+    if not na(px) and not na(b) and not na(endB) and endB > nz(swingBar, b) and endB > xAnchor(b)
+        flLines.push(line.new(xAnchor(b), px, endB, px, xloc = xloc.bar_index, color = flColor, style = lineStyleFromStr(flStyle), width = flWidth))
+
 if barstate.islast
     for ln in flLines
         line.delete(ln)
@@ -2686,6 +2711,11 @@ if barstate.islast
     if showFl and validTf
         flDraw(buySetup)
         flDraw(sellSetup)
+        for r in setupRecords
+            C2Setup o = r.setup
+            if o.flOld and o.revealed and not o.dead
+                flLineOld(o.fl1Px, o.fl1Bar, o.fl1EndH, o.c2BarIndex)
+                flLineOld(o.fl0Px, o.fl0Bar, o.fl0EndH, o.c2BarIndex)
 
 // [L/H LINES] each HTF candle's high and low on the chart, over that candle's own period
 var array<line> lhHi = array.new<line>()
