@@ -2,7 +2,8 @@
 indicator("Fractal Alignment", shorttitle = "Fractal Alignment", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, calc_bars_count = 2000)
 
 //#region [INPUTS]
-// Input sections in display order; Calculation comes last.
+// Every setting, grouped in display order. Inputs added later sit at the very end of this region (after
+// tbl_text_color) and are moved into their group on screen with group / inline.
 // TradingView stores settings by position (in_0, in_1 ...): adding or removing an input shifts every later one.
 
 grpAlerts       = 'Alerts Settings'
@@ -198,9 +199,12 @@ showXcLbl      = input.bool(true, 'XC Labels', group = grpVisuals, inline = 'lbl
 //#endregion
 
 //#region [CONSTANTS AND STATE]
+// Derived settings (colors, candle size, where things are drawn, warm-up), the types, the global state
+// (HTF candles, current models, history, dots) and the correlated pair choice.
 
 noColor           = color.new(#000000, 100)
 
+// Colors the drawings use: the inputs as they are (one palette, no separate dark-theme colors)
 bearBody      = bearBodyIn
 borderBull    = borderBullIn
 borderBear    = borderBearIn
@@ -232,6 +236,8 @@ smtOnHtf     = show_smt and smtDisplay != 'Chart'
 var int firstBar = bar_index
 calcOn = bar_index - firstBar >= math.min(500, (last_bar_index - firstBar + 1) / 5)
 
+// One candle of the model HTF block, built from the chart bars (no HTF request): OHLC, the bars of its high /
+// low, its drawings on the right, and the pairs' same candle folded from their chart-timeframe bars.
 type HtfCandle
     float o
     float h
@@ -261,8 +267,9 @@ type HtfCandle
     label pspLbl      = na
     line  smtHLine    = na
     line  smtLLine    = na
-    // role of this candle once it closed (from the raw triggers, so Hide Setups / History do not change it)
-    // and whether its model's XC2 / XC4 / C2 wick breach removed the block line ending on it
+    // [HTF SMT] role of this candle once it closed (from the raw triggers, so filters, Hide Setups and History
+    // do not change it) and whether its model's XC2 / XC4 / C2 wick breach removed the block line ending on it
+    // (set by htfSmtKill)
     bool  c2BearClosed = false
     bool  c2BullClosed = false
     bool  c3BearClosed = false
@@ -283,6 +290,8 @@ type StdDevData
     array<label> labels
     array<line>  lines
 
+// One protected swing: the dot at the swing and the line at the level that was closed through.
+// taken = price wicked beyond it (gray dot); frozen = its color no longer changes (see icMarkTakenAll).
 type ICCisd
     float extremePrice
     bool  taken    = false
@@ -291,10 +300,12 @@ type ICCisd
     line  ln       = na
     bool  frozen   = false
     int   swBar    = na
-    int   liveHtf  = na   // open time of the HTF candle after C4 (C5); the dot freezes when it closes
-    int   formNum  = na   // HTF candle count when the dot printed; it can grey until the next HTF candle closes
-    bool  noEarly  = false // its model's C4 was suppressed: only the C5 limit (liveHtf) applies
+    int   liveHtf  = na   // open time of the HTF candle that was forming when its model stopped (C5 after C4, or the candle of a replacement / XC2); the dot freezes when that candle closes
+    int   formNum  = na   // HTF candle count when icMarkTakenAll first saw the dot; it can grey until the next HTF candle closes
+    bool  noEarly  = false // its model's C4 was suppressed: only the liveHtf limit applies
 
+// One model (C2 closure or C3 closure). extreme / c2BarIndex = the C2 extreme (the swing) and its bar.
+// phase: 1 = in C3, 2 = in C4 (a C3 model starts here), 0 = finished. dead = XC2 or pushed out of the history.
 type C2Setup
     bool  isBull
     float extreme
@@ -305,7 +316,7 @@ type C2Setup
     line  c1SweepLn     = na
     box   c3Box     = na
     line  c3Dash    = na
-    label c3Lbl     = na
+    label c3Lbl     = na   // never created (only deleted in deleteSetupVisuals)
     float cisdLevel     = na
     int   cisdIndex     = na
     bool  cisdConfirmed = false
@@ -349,7 +360,7 @@ type C2Setup
     // [SMT] chart SMT lines of this setup (reversal at C2, continuations after the CISD)
     array<line>  smtLns  = na
     array<label> smtLbls = na
-    bool         smtGone = false   // a wick went beyond the C2 extreme (up to the end of C5): no SMT lines any more
+    bool         smtGone = false   // its SMT lines were removed for good (smtClear: C2 wick breach up to the end of C5, XC4, or a newer model printed)
     int          smtHtf0 = na      // HTF candle count when the setup formed
     int          endBar  = na      // bar on which C4 closed (the model finished)
     HtfCandle    smtC2   = na      // its C2 / C3 candles in the HTF block (their block SMT lines go with the model)
@@ -380,8 +391,8 @@ type C2Setup
     int    fl1Bar   = na
     float  fl0Px    = na
     int    fl0Bar   = na
-    // once a newer model of the same direction replaces it, its lines end at the bar that took them or at
-    // its own C2 close (C3 close for a C3 model), whichever comes first
+    // once a newer model of the same direction replaces it (flOld), its lines end at the bar that took them or
+    // where it formed (C3's open; C4's open for a C3 model), whichever comes first: fixed by flEndNow in newSetup
     int    fl1EndH  = na
     int    fl0EndH  = na
     bool   flOld    = false
@@ -415,7 +426,8 @@ var bool                     earlyBearArmed       = false
 var bool                     earlyBullSmtAlerted  = false
 var bool                     earlyBearSmtAlerted  = false
 var array<SetupRecord>       setupRecords         = array.new<SetupRecord>()
-// Persistent protected-swing dots: independent of any setup's lifespan
+// Protected swing dots still watched for greying (icMarkTakenAll), whatever happens to their setup;
+// a dot leaves once it is taken or frozen (the drawing stays with its setup)
 var array<ICCisd>            icDots               = array.new<ICCisd>()
 var array<EarlyCisdRecord>   bullEarlyCisdRecords = array.new<EarlyCisdRecord>()
 var array<EarlyCisdRecord>   bearEarlyCisdRecords = array.new<EarlyCisdRecord>()
@@ -638,14 +650,23 @@ bool   dxyInv     = not str.startswith(smt_ticker, 'USD')
 bool   pair1InvOn = smtCustom ? pair1Inv : pair1A == 'TVC:DXY' and dxyInv
 bool   pair2InvOn = smtCustom ? pair2Inv : pair2A == 'TVC:DXY' and dxyInv
 
+// running count of model HTF candles (incremented in [LOGIC] on each new candle); declared here so functions can
+// stamp it (a protected swing dot records the candle it printed in)
+var int htfNum = 0
+
 //#endregion
 
 //#region [FUNCTIONS]
+// Helpers and the model machinery, in this order: text / size helpers, fractal timeframes, HTF candle drawing,
+// early CISD, CISD + SD projections, protected swings, history, Auto Bias, Time Filter, NY day + ADR request,
+// pair requests, HTF 1 / HTF 2 data, PSP, T-Spot geometry, setup SMT, early C2, the model life cycle
+// (reveal, newSetup, advanceToC4, finish, extendAndCheck, checkC4Invalid, checkCisdConfirm, processSetup).
 
 // A drawing's left end is never moved further back than the time buffer allows
 xAnchor(int x) =>
     na(x) ? na : math.max(x, bar_index - 4900)
 
+// Timeframe code -> short text ('60' -> 1H, '15' -> 15m); tfLabel falls back to this for other minute counts
 customTfLabel(string tf) =>
     float  mins   = str.tonumber(tf)
     string result = tf
@@ -690,6 +711,7 @@ tfLabel(string tf) =>
         '12M' => '12M'
         =>       customTfLabel(tf)
 
+// The chart timeframe as the codes above use it (1D / 1W / 1M instead of D / W / M)
 curTfCode() =>
     timeframe.isdaily and timeframe.multiplier == 1 ? '1D' : timeframe.isweekly and timeframe.multiplier == 1 ? '1W' : timeframe.ismonthly and timeframe.multiplier == 1 ? '1M' : timeframe.period
 
@@ -961,6 +983,7 @@ method draw(HtfCandle c, int midX, string tf) =>
         c.timeLbl := na
     c
 
+// A new HTF candle opening on this bar; its drawings start invisible and are placed by draw() on the last bar
 newHtfCandle(int openT = na) =>
     HtfCandle.new(open, high, low, close, bar_index, bar_index,
          box.new(bar_index, high, bar_index, low, border_color = noColor, border_width = 1, bgcolor = noColor),
@@ -983,6 +1006,9 @@ htfCloseTime(string tf) =>
     t
 
 
+// [EARLY CISD] the forming candle swept the previous one and a chart bar closed through the CISD level: a line from
+// the level's bar (idx) and the 'Potential Candle 2' alert. extreme = the sweep's low / high: price beyond it
+// removes the line (invalidateEarlyCisd).
 drawEarlyCisd(bool isBull, float level, int idx, int confirmBar, float extreme) =>
     array<EarlyCisdRecord> target = isBull ? bullEarlyCisdRecords : bearEarlyCisdRecords
     color clr = isBull ? cisdBullColor : cisdBearColor
@@ -993,6 +1019,7 @@ drawEarlyCisd(bool isBull, float level, int idx, int confirmBar, float extreme) 
     if showAlerts and earlyCisdAlerts and calcOn and not hideSetups
         alert((isBull ? 'Bullish' : 'Bearish') + ' Potential Candle 2 on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar_close)
 
+// removes early CISD lines whose sweep extreme price has traded beyond (every bar)
 invalidateEarlyCisd(array<EarlyCisdRecord> recs, bool isBull) =>
     if recs.size() > 0
         for i = recs.size() - 1 to 0
@@ -1001,6 +1028,7 @@ invalidateEarlyCisd(array<EarlyCisdRecord> recs, bool isBull) =>
                 line.delete(rec.ln)
                 recs.remove(i)
 
+// removes early CISD lines older than the oldest model in the history (called from registerRecord)
 pruneEarlyCisd(array<EarlyCisdRecord> recs, int thresholdBar) =>
     if not na(thresholdBar)
         while recs.size() > 0 and recs.first().barIndex < thresholdBar
@@ -1059,6 +1087,8 @@ createStdDevProjections(C2Setup s) =>
                     lbs.push(label.new(leftBar, devPrice, str.tostring(dev), xloc = xloc.bar_index, style = label.style_label_right, color = na, textcolor = stdDevColor, size = textSize(stdLblSize), text_font_family = font.family_default))
             s.stdDevData := StdDevData.new(lbs, lns)
 
+// Marks the setup's CISD confirmed on confirmBar and draws its CISD line + SD projections.
+// live = false when it was confirmed in the past (inside C2): no CISD alert flag then.
 confirmCisd(C2Setup s, int confirmBar, bool live = true) =>
     s.cisdConfirmed := true
     if live
@@ -1073,6 +1103,7 @@ confirmCisd(C2Setup s, int confirmBar, bool live = true) =>
         s.cisdLine := line.new(xAnchor(s.cisdIndex), s.cisdLevel, confirmBar + 1, s.cisdLevel, color = clr, style = lineStyleFromStr(lnStyle), width = lnWidth)
     createStdDevProjections(s)
 
+// [PROTECTED SWINGS] (icStep below is the state machine). Drops the swing being watched.
 icClearPending(C2Setup s) =>
     s.icPending      := false
     s.icLevel        := na
@@ -1081,8 +1112,8 @@ icClearPending(C2Setup s) =>
     s.icExtremeIndex := na
     s
 
-// Walks back from the extreme bar through consecutive opposing candles.
-// bias: 1 = bullish candles (used for bearish setups), -1 = bearish candles (used for bullish setups)
+// Walks back from the extreme bar through consecutive opposing candles; returns [the open of the oldest one, its bar]
+// (na when none within ~500 bars). bias: 1 = bullish candles (bearish setups), -1 = bearish candles (bullish setups)
 icFindCisdLevel(int extremeBarIdx, int bias) =>
     int   offset     = bar_index - extremeBarIdx
     float cisdPrice  = na
@@ -1145,6 +1176,8 @@ c4LabelDodge(C2Setup s) =>
         if nx != x
             label.set_x(s.c4Lbl, nx)
 
+// A confirmed protected swing at swPx / swIdx (brokeBar = the bar that closed through the level): dot + level line,
+// added to the setup's list and (not for an early C2 setup) to icDots
 registerIcCisd(C2Setup s, float swPx, int swIdx, int brokeBar) =>
     color  clr     = s.isBull ? protBullColor : protBearColor
     string lnStyle = s.early ? earlyCisdStyle : protStyle
@@ -1153,7 +1186,7 @@ registerIcCisd(C2Setup s, float swPx, int swIdx, int brokeBar) =>
     label  dotLbl  = not drawIc ? na : label.new(xAnchor(swIdx), swPx, '●', xloc = xloc.bar_index, style = s.isBull ? label.style_label_up : label.style_label_down, color = na, textcolor = clr, size = textSize(icCisdDotSize), text_font_family = font.family_default)
     // the level price closed through to confirm the swing; like the CISD line it ends one candle after that close
     line   lvlLn   = drawIc and not na(s.icLevel) and not na(s.icStartIndex) ? line.new(xAnchor(s.icStartIndex), s.icLevel, brokeBar + 1, s.icLevel, xloc = xloc.bar_index, color = clr, style = lineStyleFromStr(lnStyle), width = protWidth) : na
-    ic = ICCisd.new(swPx, dotLbl = dotLbl, isBull = s.isBull, ln = lvlLn, swBar = swIdx)
+    ic = ICCisd.new(swPx, dotLbl = dotLbl, isBull = s.isBull, ln = lvlLn, swBar = swIdx, formNum = htfNum)
     if na(s.icList)
         s.icList := array.new<ICCisd>()
     s.icList.push(ic)
@@ -1162,9 +1195,11 @@ registerIcCisd(C2Setup s, float swPx, int swIdx, int brokeBar) =>
         icDots.push(ic)
     c4LabelDodge(s)
 
-// Greys a dot when price wicks beyond its extreme. A dot can grey during the HTF candle it printed in and the
-// next one (a dot printed in C3 keeps its color from C5 on), never after C5. A grey dot stays on the chart until
-// its setup leaves the history; it needs no more watching, so it leaves this list.
+// Once per bar, before new dots can form: greys a dot when price wicks beyond its extreme. A dot can grey during
+// the HTF candle it printed in and the next one (formNum; a dot printed in C3 keeps its color from C5 on), and
+// never after its model's liveHtf candle (C5) closes; noEarly (C4 suppressed) keeps only the liveHtf limit, and a
+// C3 model's dots freeze when its C4 closes (finish). A taken or frozen dot leaves this list; its drawing stays
+// until its setup leaves the history.
 icMarkTakenAll(int htfOpenT, int hNum) =>
     if icDots.size() > 0
         for i = icDots.size() - 1 to 0
@@ -1310,9 +1345,12 @@ icCheckC4Wick(C2Setup s) =>
             s.icStopped := true
     s
 
+// no more protected swings for this setup: dead (XC2 / history), finished, XC4 or C3's opposite extreme wicked in C4
 icHardStop(C2Setup s) =>
     s.dead or s.phase == 0 or s.c4Invalid or s.icStopped
 
+// Every bar for the current buy / sell setups and the early C2 setups: greys their dots, then one icStep on a
+// closed bar after the CISD (or clears the pending swing once detection has stopped)
 method updateIc(C2Setup s) =>
     if not na(s)
         icCheckC4Wick(s)
@@ -1326,6 +1364,8 @@ method updateIc(C2Setup s) =>
                 icStep(s, bar_index, true)
     s
 
+// Deletes every drawing of a setup (label, CISD, sweep, SMT, T-Spots, SD, dots). Used for setups pushed out of
+// the history and for the temporary early C2 setups. Formation liquidity is redrawn on the last bar from the history.
 deleteSetupVisuals(C2Setup s) =>
     if not na(s)
         label.delete(s.c2Lbl)
@@ -1357,6 +1397,8 @@ deleteSetupVisuals(C2Setup s) =>
                 ic.ln     := na
                 ic.taken  := true
 
+// [HISTORY] Called by reveal: keeps the latest History + 1 models (both directions together); an older one is
+// marked dead and its drawings deleted. Early CISD lines older than the oldest kept model go too.
 registerRecord(C2Setup s) =>
     setupRecords.push(SetupRecord.new(s, bar_index))
     while setupRecords.size() > showHistory + 1
@@ -1829,9 +1871,10 @@ smtNames(bool d1, bool d2) =>
             s := s == '' ? statusSym(pair2Name) : s + '/' + statusSym(pair2Name)
     s
 
+// The model HTF: open time of the forming candle, true on the first chart bar of a new one, and a running
+// candle count (models and dots measure their HTF windows with it)
 int htfOpenT  = time(autoTf)
 periodChanged = htfOpenT != htfOpenT[1]
-var int htfNum = 0
 if periodChanged
     htfNum += 1
 
@@ -2019,8 +2062,11 @@ flEndNow(float px, int b, bool isBull) =>
                 break
     endB
 
-// A new model. C2 model: created when C3 opens. C3 model (C3 closure): created when C4 opens, so it
-// starts in C4. Nothing is drawn until the CISD confirms (see reveal).
+// A new model; returns it. C2 model: created when C3 opens. C3 model (C3 closure): created when C4 opens, so it
+// starts in C4. Takes the swing (extreme / extremeBar), label tag, C1 sweep, the early CISD state of the closed
+// candle (level, bar, already confirmed + bar), reversal SMT and the formation liquidity targets. Stores the
+// T-Spot, the block candles (smtC2 / smtC3) and the formation liquidity ends. Nothing is drawn until the CISD
+// confirms (see reveal); when it already confirmed inside C2 it reveals at once and replays the protected swings.
 newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, float c1Px, int c1Bar, int sweepEnd, float cisdLevel, int cisdIndex, bool cisdAlreadyConfirmed, int cisdConfirmBar, bool smtHit, string smtTxt, float fl1Px, int fl1Bar, float fl0Px, int fl0Bar) =>
     C2Setup s = C2Setup.new(isBull = isBull, extreme = extreme, phase = 1, dead = false, c2Lbl = na)
     s.smtHtf0    := htfNum
@@ -2073,6 +2119,9 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
                 bot := oBot
         if htfCandles.size() > 1
             s.smtC2 := htfCandles.get(1)
+        // the forming candle is this model's C3 (advanceToC4 sets the same candle again)
+        if htfCandles.size() > 0
+            s.smtC3 := htfCandles.first()
         s.c3Start := bar_index
         s.c3Top   := top
         s.c3Bot   := bot
@@ -2083,6 +2132,8 @@ newSetup(bool isBull, bool c3Model, float extreme, int extremeBar, string tag, f
         s.replayIc(bar_index - 1)
     s
 
+// C2 model, when C4 opens: closes the C3 T-Spot, keeps C3's range (XC4, protected swings), opens the C4
+// T-Spot and sends the 'Candle 4' alert
 method advanceToC4(C2Setup s) =>
     if htfCandles.size() > 1
         c3 = htfCandles.get(1)
@@ -2111,12 +2162,14 @@ method advanceToC4(C2Setup s) =>
         alert((s.isBull ? 'Bullish' : 'Bearish') + ' Candle 4 on ' + syminfo.ticker + ', ' + modelText(), alert.freq_once_per_bar)
     s
 
-// a finished setup's dots can still grey during the next HTF candle (C5), then keep their color.
+// The setup stops (finished, replaced by a newer model of its direction, or XC2): its dots can still grey until
+// the HTF candle forming now closes (C5 for a finished model), then keep their color (icMarkTakenAll).
 icFreeze(C2Setup s) =>
     if not na(s) and not na(s.icList)
         for ic in s.icList
             ic.liveHtf := htfOpenT
 
+// When the candle after C4 (C5) opens: the model is finished (phase 0, endBar), its boxes / lines stop here
 method finish(C2Setup s) =>
     icFreeze(s)
     // a C3 model's dots keep their color from C5 on
@@ -2142,6 +2195,8 @@ method deleteStdDev(C2Setup s) =>
         s.stdDevData := na
     s
 
+// Every bar for a running model: grows its T-Spot box / EQ, and checks XC2 (a close beyond the C2 extreme kills
+// the model: label XC2, everything else of it deleted, block SMT lines killed, dots frozen)
 method extendAndCheck(C2Setup s) =>
     if not na(s) and not s.dead and s.phase != 0
         // T-Spot box and EQ grow with price, one bar past the current bar, so a new box shows
@@ -2159,7 +2214,7 @@ method extendAndCheck(C2Setup s) =>
         if s.phase == 2 and not na(s.c3Ln)
             line.set_x2(s.c3Ln, bar_index + 1)
 
-        // XC2: price closes back beyond the swing (the C2 extreme). Red in C3, orange later.
+        // XC2: price closes back beyond the swing (the C2 extreme). Label in the bearish CISD color in C3, orange in C4.
         c2Breach = s.isBull ? close < s.extreme : close > s.extreme
         if c2Breach
             if not na(s.c2Lbl) and showXcLbl
@@ -2242,6 +2297,7 @@ suppressOverlappedC4(C2Setup older, C2Setup newer) =>
                     ic.noEarly := true
     older
 
+// A model still waiting for its CISD: a closed chart bar beyond the level reveals it and draws the CISD
 method checkCisdConfirm(C2Setup s) =>
     if barstate.isconfirmed and not na(s) and not s.dead and not s.cisdConfirmed and s.phase != 0 and not na(s.cisdLevel) and not na(s.cisdIndex)
         confirmed = s.isBull ? close > s.cisdLevel : close < s.cisdLevel
@@ -2250,7 +2306,8 @@ method checkCisdConfirm(C2Setup s) =>
             confirmCisd(s, bar_index)
     s
 
-// New model on a trigger, otherwise C3 -> C4 -> finished on each new HTF candle
+// Called every bar for each direction; returns the current model of that direction. On a trigger: the old one
+// stops (icFreeze, flOld) and a new model replaces it. Otherwise, on each new HTF candle: C3 -> C4 -> finished.
 processSetup(C2Setup existing, bool trigger, bool isBull, bool c3Model, float extreme, int extremeBar, string tag, float c1Px, int c1Bar, int sweepEnd, float cisdLevel, int cisdIndex, bool cisdDone, int cisdBar, bool smtHit, string smtTxt, float fl1Px, int fl1Bar, float fl0Px, int fl0Bar) =>
     C2Setup result = existing
     if trigger
@@ -2263,6 +2320,7 @@ processSetup(C2Setup existing, bool trigger, bool isBull, bool c3Model, float ex
         result := existing.phase == 1 ? existing.advanceToC4() : existing.phase == 2 ? existing.finish() : existing
     result
 
+// Flags the C1 candle (idx in the block) of a model for the block's C1 sweep line and PSP
 markTrigger(bool trigger, int idx, bool isBuy) =>
     if trigger and htfCandles.size() > idx
         c = htfCandles.get(idx)
@@ -2274,7 +2332,11 @@ markTrigger(bool trigger, int idx, bool isBuy) =>
 //#endregion
 
 //#region [LOGIC]
+// Runs on every bar, in this order: HTF highs / lows, early CISD levels, the HTF candle block, pair folding,
+// C2 / C3 closure triggers, new models (processSetup), per-bar model checks (XC2, XC4, CISD, C4 overlap),
+// SMT removal on a new print, dot greying, protected swings, early C2, alert conditions, vertical lines.
 
+// high / low of the forming HTF candle (h0 / l0) and of the previous one (h1 / l1), from the chart bars
 var float h0 = high
 var float l0 = low
 var float h1 = high
@@ -2295,6 +2357,10 @@ bool up = close > open
 bool dw = close < open
 bool eq = close == open
 
+// [EARLY CISD] When a closed bar makes a new low of the forming HTF candle below the previous candle's low, the
+// bullish CISD level is the open of the run of bearish candles into it (bearish: mirrored). A later close through
+// it is the reclaim (bullReclaimed): an early CISD while the candle forms, and at the HTF close the model's
+// already-confirmed CISD (newSetup reads the [1] values).
 var float bullLevelFixed = na
 var int   bullIndexFixed = na
 var float bearLevelFixed = na
@@ -2381,6 +2447,8 @@ if barstate.isconfirmed and not na(bearLevelFixed) and not bearReclaimed and clo
 
 candleOffset = candleOffsetIn + 10
 
+// [HTF CANDLES] a new HTF candle on periodChanged (the oldest one beyond HTF Candles is dropped and kept in
+// gone*), otherwise the forming one follows the chart bar
 if validTf
     if periodChanged
         if htfCandles.size() > 0
@@ -2509,7 +2577,8 @@ string c3Tag = c3BuyGo or c3SellGo ? 'C3' + (psp3Hit ? '+PSP' : '') : ''
 [c2SmtB1, c2SmtB2] = earlySmtFlags(true, htfAt(1), htfAt(2))
 [c2SmtS1, c2SmtS2] = earlySmtFlags(false, htfAt(1), htfAt(2))
 
-// C2 model: C2 = get(1), C1 = get(2). C3 model: C2 = get(2), C1 = get(3).
+// [NEW MODELS] C2 model: C2 = get(1), C1 = get(2). C3 model: C2 = get(2), C1 = get(3).
+// processSetup runs on every bar (trigger or not); the pair's C2 extremes and the continuation SMT start follow.
 int       bI1 = c3BuyGo ? 3 : 2
 HtfCandle bK1 = htfAt(bI1)
 HtfCandle bK2 = htfAt(bI1 - 1)
@@ -2553,6 +2622,7 @@ markTrigger(c2SellMark or c3SellMark, c3SellMark ? 3 : 2, false)
 alertcondition((c2BuyGo or c3BuyGo) and not bullReclaimed[1] and showAlerts and modelAlerts, title = 'Bullish C2/C3 Closure', message = 'Bullish C2/C3 closed on {{ticker}} ({{interval}}), waiting for CISD')
 alertcondition((c2SellGo or c3SellGo) and not bearReclaimed[1] and showAlerts and modelAlerts, title = 'Bearish C2/C3 Closure', message = 'Bearish C2/C3 closed on {{ticker}} ({{interval}}), waiting for CISD')
 
+// per-bar checks of the current models: XC2, XC4, CISD confirmation, then the older model's C4 under a newer C3
 buySetup  := buySetup.extendAndCheck()
 sellSetup := sellSetup.extendAndCheck()
 
@@ -2658,6 +2728,7 @@ alertcondition(bearEarlyCisdFiredThisBar and barstate.isconfirmed and showAlerts
 alertcondition(cisdBullFiredThisBar and showAlerts and modelAlerts and not hideSetups and calcOn, title = 'Bullish CISD Confirmed', message = 'Bullish CISD Confirmed on {{ticker}} ({{interval}})')
 alertcondition(cisdBearFiredThisBar and showAlerts and modelAlerts and not hideSetups and calcOn, title = 'Bearish CISD Confirmed', message = 'Bearish CISD Confirmed on {{ticker}} ({{interval}})')
 
+// vertical line at each HTF open (as many as HTF Candles)
 if showVlines and validTf and periodChanged and calcOn
     vLines.unshift(line.new(bar_index, low - ta.tr, bar_index, high + ta.tr, xloc.bar_index, extend.both, lineColor, lineStyleFromStr(lineStyle), lineWidth))
     while vLines.size() > htfCandleCount
@@ -2670,7 +2741,8 @@ if showVlines and validTf and periodChanged and calcOn
 // [FORMATION LIQUIDITY] the target side of the C1 candle and of the candle before it (bullish:
 // their highs, bearish: their lows). A line starts where that high / low printed and ends at the bar
 // that trades through it; an untaken one runs to the last bar. Levels already taken before the swing
-// are not targets.
+// are not targets. Redrawn on the last bar: the current bull / bear model live (flDraw), older models in the
+// history with the end fixed when they formed (flLineOld).
 var array<line> flLines = array.new<line>()
 // Loops read these up to ~1500 bars back; reserving the history up front keeps a realtime bar
 // from asking for more than the buffer chosen on historical bars (runtime error on candle close).
@@ -2682,6 +2754,8 @@ max_bars_back(close, 1500)
 // time: without this, every new realtime bar asks one bar further than the buffer chosen on history.
 max_bars_back(time, 5000)
 
+// one live target line from bar b at px to the first bar that traded through it (or the last bar); none when
+// that happened before the swing (swingBar)
 flLine(float px, int b, bool isBull, int swingBar) =>
     if not na(px) and not na(b) and b < bar_index
         // untaken: runs to the last bar
@@ -2699,7 +2773,7 @@ flDraw(C2Setup s) =>
         flLine(s.fl1Px, s.fl1Bar, s.isBull, s.c2BarIndex)
         flLine(s.fl0Px, s.fl0Bar, s.isBull, s.c2BarIndex)
 
-// an older model in the history: its end was fixed when it formed
+// an older model in the history: its end (endB) was fixed when it formed (flEndNow)
 flLineOld(float px, int b, int endB, int swingBar) =>
     if not na(px) and not na(b) and not na(endB) and endB > nz(swingBar, b) and endB > xAnchor(b)
         flLines.push(line.new(xAnchor(b), px, endB, px, xloc = xloc.bar_index, color = flColor, style = lineStyleFromStr(flStyle), width = flWidth))
@@ -2735,6 +2809,9 @@ if showLH and validTf and calcOn and htfCandles.size() > 0
         line.set_xy2(lhLo.first(), bar_index, cNow.l)
 
 //#region [PLOT]
+// Drawings refreshed on the last bar: the model HTF block (candles, HTF Open, Previous EQ, C1 sweep, block SMT,
+// PSP, live sweep, title), the HTF 1 / HTF 2 blocks, Info Table, ADR+ / ADR- lines, warnings. At the end the
+// chart SMT of the running models (continuation SMT and the wick breach rule), which runs on every bar.
 
 // One horizontal line, created / moved / removed
 hzLine(line ln, bool on, int x1, float y, int x2, color c, string st, int w) =>
@@ -3301,7 +3378,7 @@ if barstate.islast
 // ============================================================
 // [SMT] ON CHART: continuation SMT inside a live setup
 // ============================================================
-// SMT on the chart belongs to a setup: the reversal SMT is drawn at C2 (newSetup). The
+// SMT on the chart belongs to a setup: the reversal SMT (C1 -> C2) is drawn when the model reveals. The
 // continuation SMT: after the C2 candle a pair goes beyond its own C2 candle's extreme while we stay
 // inside ours (bullish: a pair makes a lower low, we a higher low). The line joins our C2 extreme and our
 // bar at that moment; from then the end slides to our further extremes (still not beyond C2).
@@ -3357,6 +3434,8 @@ f_csStep(C2Setup s, bool isHigh, float own, int ownBar, float v1, float v2) =>
         s.csDiv := true
     s
 
+// Every bar for the current bull / bear model: on its first bar replays the bars since csStart from the pBuf
+// arrays, then one step per bar while in C3; once a pair diverged it alerts once and draws / slides the line.
 f_smtCont(C2Setup s) =>
     if smt_on and not na(s) and not s.dead and not s.smtGone and s.phase != 0 and not na(s.c2BarIndex) and not na(s.extreme)
         bool isHigh = not s.isBull
